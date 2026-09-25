@@ -74,7 +74,9 @@ HTML documentation and GitHub Pages
   (official Pages Actions: configure → build → upload → deploy).
   Repository Pages must use the "GitHub Actions" source once.
 * Expected URL: ``https://ajit-ai.github.io/Karkain-Applications/``.
-  Remote deployment has not been executed from this environment;
-  the workflow is configured, not yet run.
+  Remote deployment executed on 2026-09-25 via the ``docs`` workflow
+  (Pages source: GitHub Actions): build + deployment jobs succeeded
+  and the published index, navigation, and release pages were
+  verified live.
 * CI (``.github/workflows/ci.yml``) runs the matrix check plus the
   ``-W`` docs build on ``main``/``develop`` pushes and pull requests.
