@@ -1,0 +1,35 @@
+/* Karkain-Applications documentation hardening.
+ *
+ * Purpose: enforce the laboratory's layout acceptance invariants —
+ * every page must show its complete content, scroll normally to the
+ * bottom, keep the footer visible, and land anchors in view.
+ *
+ * Method: only RELAX potential constraints; nothing here hides,
+ * collapses, resizes, or removes any content or navigation. The
+ * sidebar keeps its own scrolling behavior; the footer rule merely
+ * cancels the theme's narrow-viewport `display: none`.
+ */
+
+/* Content containers must never constrain height. */
+html,
+body,
+div.document,
+div.documentwrapper,
+div.bodywrapper,
+div.body {
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* The footer is part of the documented content: always render it,
+ * including below the theme's 875px narrow-viewport breakpoint. */
+div.footer {
+    display: block !important;
+}
+
+/* Anchor targets: keep some breathing room above the section so the
+ * heading never sits flush under the viewport edge. No fixed header
+ * exists, so no larger offset is needed. */
+section {
+    scroll-margin-top: 12px;
+}
