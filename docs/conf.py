@@ -13,3 +13,7 @@ source_suffix = ".rst"
 language = "en"
 html_theme = "alabaster"
 html_title = "Karkain-Applications Laboratory"
+# Project-owned hardening stylesheet (layout invariants only: no fixed
+# content heights, always-visible footer, anchor margin). Alabaster's
+# layout unconditionally links _static/custom.css; this file supplies it.
+html_static_path = ["_static"]
