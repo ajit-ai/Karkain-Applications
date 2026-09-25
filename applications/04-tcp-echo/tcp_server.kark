@@ -1,0 +1,42 @@
+// tcp_server.kark — A14 TCP echo server (Phase 004).
+//
+// Single-client / single-session echo over verified Karkain 1.1.0 builtins:
+// net_listen / net_accept / net_read / net_write / net_close /
+// net_last_error. Accepts one connection, echoes one message, closes both
+// sockets, returns. No concurrency in this phase (CAP-005 handled later).
+public func tcp_server_run(host, port) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["received"] = ""
+    let srv = net_listen(host, port)
+    if (srv < 0) {
+        r["error"] = net_last_error()
+        println("server: listen failed: " + r["error"])
+        return r
+    }
+    println("server: listening " + host + ":" + str(port))
+    let conn = net_accept(srv)
+    if (conn < 0) {
+        r["error"] = net_last_error()
+        println("server: accept failed: " + r["error"])
+        net_close(srv)
+        return r
+    }
+    let msg = net_read(conn, 4096)
+    println("server: received " + msg)
+    let w = net_write(conn, msg)
+    if (w < 0) {
+        r["error"] = net_last_error()
+        println("server: write failed: " + r["error"])
+        net_close(conn)
+        net_close(srv)
+        return r
+    }
+    println("server: echoed " + msg)
+    net_close(conn)
+    net_close(srv)
+    r["ok"] = 1
+    r["received"] = msg
+    return r
+}

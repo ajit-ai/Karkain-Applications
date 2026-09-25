@@ -1,0 +1,3 @@
+stock levels
+sku-1,100
+sku-3,7

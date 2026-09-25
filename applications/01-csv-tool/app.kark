@@ -1,0 +1,43 @@
+// app.kark — A05 CSV/Data Processing Tool (Phase 002).
+//
+// Orchestration only: argument handling, usage/error messages, calls into
+// csv_parse / csv_agg, deterministic output. Parsing lives in csv_parse.kark,
+// aggregation lives in csv_agg.kark.
+//
+// Verified limitation (CAP-008): `karkain run` does not forward program
+// arguments (extra args are dropped by the 1.1.0 CLI), so `getArgs()` only
+// carries the CSV path when the app is built (`karkain build -o csv-tool`)
+// and the binary is executed directly. With no filename available the app
+// prints usage. See README.rst.
+import csv_parse
+import csv_agg
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: csv-tool <csv-file>")
+        return
+    }
+    let path = args[1]
+    let parsed = csv_parse.csv_parse_file(path)
+    if (parsed["ok"] == 0) {
+        println("error: cannot read " + path)
+        return
+    }
+    let rows = parsed["rows"]
+    let st = csv_agg.csv_agg_stats(rows)
+    println("rows: " + str(st["count"]))
+    println("sum: " + str(st["sum"]))
+    println("min: " + str(st["min"]))
+    println("max: " + str(st["max"]))
+    println("avg: " + str(st["avg"]))
+    println("groups:")
+    let groups = csv_agg.csv_agg_groups(rows)
+    let keys = csv_agg.csv_agg_sort(map_keys_of(groups))
+    let i = 0
+    while (i < len(keys)) {
+        let entry = groups[keys[i]]
+        println(keys[i] + ": count=" + str(entry[0]) + " sum=" + str(entry[1]))
+        i = i + 1
+    }
+}

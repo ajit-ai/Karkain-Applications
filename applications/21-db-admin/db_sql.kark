@@ -1,0 +1,824 @@
+// db_sql.kark — compact SQL-subset engine for A20/A21 (Phase 006).
+//
+// Supported statements (keywords case-insensitive, names case-sensitive):
+//   CREATE TABLE t (a, b, ...)     DROP TABLE t
+//   INSERT INTO t VALUES (v, ...)  TABLES
+//   SELECT * FROM t                SCHEMA t
+//   SELECT a, b FROM t
+//   UPDATE t SET c = v WHERE c = w
+//   DELETE FROM t WHERE c = w
+// Values: integer literals (optional leading -) store as int; 'quoted'
+// strings store dequoted; barewords store as strings. No escaped quotes;
+// values may not contain "|" or newlines (pipe-delimited file format,
+// same class of limitation as the documented db2 store).
+// WHERE is a single col = value equality on decoded text.
+// File format: "#karkain-db-v1", "T|t|c1,c2", "R|t|i:1|s:ann".
+//
+// State: db = { tables: { name: { cols: [], rows: [[cells]] } } }.
+// Verified builtins only: readFile/writeFile/split/trim/substr/int/len/
+// push/hasKey/map_keys_of.
+
+// ---- text helpers ----
+
+// db_find returns the first index of sub in text, or -1.
+public func db_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if (m == 0) {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if (substr(text, i, m) == sub) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// db_lower maps ASCII A-Z to a-z via table lookup (no char arithmetic).
+public func db_lower(s) {
+    let up = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    let lo = "abcdefghijklmnopqrstuvwxyz"
+    let out = ""
+    let i = 0
+    while (i < len(s)) {
+        let c = s[i]
+        let j = 0
+        let done = 0
+        while (j < 26) {
+            if (c == up[j]) {
+                out = out + lo[j]
+                done = 1
+                j = 26
+            }
+            j = j + 1
+        }
+        if (done == 0) {
+            out = out + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// db_first returns the leading token (stops at space or "(").
+public func db_first(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        let c = substr(t, i, 1)
+        if (c == " ") {
+            break
+        }
+        if (c == "(") {
+            break
+        }
+        i = i + 1
+    }
+    return substr(t, 0, i)
+}
+
+// db_rest returns the trimmed remainder after the first token.
+public func db_rest(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        let c = substr(t, i, 1)
+        if (c == " ") {
+            break
+        }
+        if (c == "(") {
+            break
+        }
+        i = i + 1
+    }
+    return trim(substr(t, i, len(t) - i))
+}
+
+// db_inner returns text inside the first (...) pair, trimmed.
+public func db_inner(s) {
+    let t = trim(s)
+    if (len(t) > 0) {
+        if (substr(t, 0, 1) == "(") {
+            t = substr(t, 1, len(t) - 1)
+        }
+    }
+    let c = db_find(t, ")")
+    if (c >= 0) {
+        t = substr(t, 0, c)
+    }
+    return trim(t)
+}
+
+// db_split_trim splits on sep and trims every element.
+public func db_split_trim(text, sep) {
+    let out = []
+    let parts = split(text, sep)
+    let i = 0
+    while (i < len(parts)) {
+        push(out, trim(parts[i]))
+        i = i + 1
+    }
+    return out
+}
+
+// db_is_int reports whether s is a signed integer literal.
+public func db_is_int(s) {
+    let n = len(s)
+    if (n == 0) {
+        return 0
+    }
+    let i = 0
+    if (substr(s, 0, 1) == "-") {
+        i = 1
+        if (n == 1) {
+            return 0
+        }
+    }
+    while (i < n) {
+        if (db_is_digit(substr(s, i, 1)) == 0) {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+// db_is_digit reports whether a 1-char string is 0-9.
+public func db_is_digit(c) {
+    if (c == "0") {
+        return 1
+    }
+    if (c == "1") {
+        return 1
+    }
+    if (c == "2") {
+        return 1
+    }
+    if (c == "3") {
+        return 1
+    }
+    if (c == "4") {
+        return 1
+    }
+    if (c == "5") {
+        return 1
+    }
+    if (c == "6") {
+        return 1
+    }
+    if (c == "7") {
+        return 1
+    }
+    if (c == "8") {
+        return 1
+    }
+    if (c == "9") {
+        return 1
+    }
+    return 0
+}
+
+// db_unquote strips one pair of surrounding single quotes.
+public func db_unquote(s) {
+    let n = len(s)
+    if (n >= 2) {
+        if (substr(s, 0, 1) == "'") {
+            if (substr(s, n - 1, 1) == "'") {
+                return substr(s, 1, n - 2)
+            }
+        }
+    }
+    return s
+}
+
+// db_encode stores a literal as "i:N" or "s:X".
+public func db_encode(v) {
+    let t = db_unquote(trim(v))
+    if (db_is_int(t) == 1) {
+        return "i:" + t
+    }
+    return "s:" + t
+}
+
+// db_decode renders a cell for display.
+public func db_decode(cell) {
+    if (len(cell) >= 2) {
+        if (substr(cell, 0, 2) == "i:") {
+            return substr(cell, 2, len(cell) - 2)
+        }
+        if (substr(cell, 0, 2) == "s:") {
+            return substr(cell, 2, len(cell) - 2)
+        }
+    }
+    return cell
+}
+
+// db_value returns decoded text for WHERE comparison.
+public func db_value(cell) {
+    return db_decode(cell)
+}
+
+// ---- structure helpers (copies; stores are plain values) ----
+
+// db_copy_array returns a fresh copy of an array.
+public func db_copy_array(a) {
+    let r = []
+    let i = 0
+    while (i < len(a)) {
+        push(r, a[i])
+        i = i + 1
+    }
+    return r
+}
+
+// db_copy_tables deep-copies every table (rows are copied per row).
+public func db_copy_tables(db) {
+    let out = {}
+    let names = map_keys_of(db["tables"])
+    let i = 0
+    while (i < len(names)) {
+        let t = db["tables"][names[i]]
+        let nt = {}
+        nt["cols"] = db_copy_array(t["cols"])
+        let rows = []
+        let j = 0
+        while (j < len(t["rows"])) {
+            push(rows, db_copy_array(t["rows"][j]))
+            j = j + 1
+        }
+        nt["rows"] = rows
+        out[names[i]] = nt
+        i = i + 1
+    }
+    return out
+}
+
+// db_blank returns a fresh db shell preserving nothing but shape.
+public func db_blank() {
+    let d = {}
+    d["tables"] = {}
+    return d
+}
+
+// db_col_index returns the column position, or -1.
+public func db_col_index(t, col) {
+    let i = 0
+    while (i < len(t["cols"])) {
+        if (t["cols"][i] == col) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// db_sort returns a sorted copy of a string array.
+public func db_sort(keys) {
+    let out = db_copy_array(keys)
+    let a = 0
+    while (a < len(out)) {
+        let b = a + 1
+        while (b < len(out)) {
+            if (out[b] < out[a]) {
+                let t = out[a]
+                out[a] = out[b]
+                out[b] = t
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+// ---- result constructor ----
+
+// db_res builds { ok, error, lines }.
+public func db_res(ok, error) {
+    let r = {}
+    r["ok"] = ok
+    r["error"] = error
+    r["lines"] = []
+    return r
+}
+
+// db_pushline appends a display line to a result.
+public func db_pushline(r, line) {
+    let lines = r["lines"]
+    push(lines, line)
+    r["lines"] = lines
+    return r
+}
+
+// ---- statements (each returns a fresh db + result) ----
+
+// db_stmt_create handles CREATE TABLE t (a, b).
+// NOTE: db_exec already strips the leading "create table ", so sql here
+// starts at the table name (single strip only — double-strip bug fixed).
+public func db_stmt_create(db, sql) {
+    let name = db_first(sql)
+    let fresh = db_copy_tables(db)
+    if (len(name) == 0) {
+        let r = db_res(0, "no table name")
+        return pack_fresh(fresh, r)
+    }
+    if (hasKey(fresh, name) == 1) {
+        let r = db_res(0, "table exists: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let cols = db_split_trim(db_inner(db_rest(sql)), ",")
+    if (len(cols) == 0) {
+        let r = db_res(0, "no columns")
+        return pack_fresh(fresh, r)
+    }
+    let t = {}
+    t["cols"] = cols
+    t["rows"] = []
+    fresh[name] = t
+    let r = db_res(1, "")
+    r = db_pushline(r, "ok")
+    return pack_fresh(fresh, r)
+}
+
+// pack_fresh bundles a fresh tables map with a result.
+public func pack_fresh(fresh, res) {
+    let d = db_blank()
+    d["tables"] = fresh
+    let out = {}
+    out["db"] = d
+    out["res"] = res
+    return out
+}
+
+// db_exec runs one SQL statement; returns { db, res } with res lines.
+public func db_exec(db, sql) {
+    let s = trim(sql)
+    let low = db_lower(s)
+    if (db_starts(low, "create table ")) {
+        return db_stmt_create(db, substr(s, 13, len(s) - 13))
+    }
+    if (db_starts(low, "insert into ")) {
+        return db_stmt_insert(db, substr(s, 12, len(s) - 12))
+    }
+    if (db_starts(low, "select ")) {
+        return db_stmt_select(db, substr(s, 7, len(s) - 7))
+    }
+    if (db_starts(low, "update ")) {
+        return db_stmt_update(db, substr(s, 7, len(s) - 7))
+    }
+    if (db_starts(low, "delete from ")) {
+        return db_stmt_delete(db, substr(s, 12, len(s) - 12))
+    }
+    if (db_starts(low, "drop table ")) {
+        return db_stmt_drop(db, substr(s, 11, len(s) - 11))
+    }
+    if (low == "tables") {
+        return db_stmt_tables(db)
+    }
+    if (db_starts(low, "schema ")) {
+        return db_stmt_schema(db, trim(substr(s, 7, len(s) - 7)))
+    }
+    let fresh = db_copy_tables(db)
+    let r = db_res(0, "unsupported statement")
+    return pack_fresh(fresh, r)
+}
+
+// db_starts reports whether text begins with prefix.
+public func db_starts(text, prefix) {
+    if (len(prefix) > len(text)) {
+        return 0
+    }
+    if (substr(text, 0, len(prefix)) == prefix) {
+        return 1
+    }
+    return 0
+}
+
+// db_stmt_insert handles INSERT INTO t VALUES (v, ...).
+public func db_stmt_insert(db, rest) {
+    let fresh = db_copy_tables(db)
+    let name = db_first(rest)
+    if (len(name) == 0) {
+        let r = db_res(0, "no table name")
+        return pack_fresh(fresh, r)
+    }
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let after = db_rest(rest)
+    if (db_starts(db_lower(after), "values ") == 0) {
+        let r = db_res(0, "expected VALUES")
+        return pack_fresh(fresh, r)
+    }
+    let vals = db_split_trim(db_inner(db_rest(after)), ",")
+    let t = fresh[name]
+    if (len(vals) != len(t["cols"])) {
+        let r = db_res(0, "value count mismatch")
+        return pack_fresh(fresh, r)
+    }
+    let cells = []
+    let i = 0
+    while (i < len(vals)) {
+        push(cells, db_encode(vals[i]))
+        i = i + 1
+    }
+    let rows = db_copy_array(t["rows"])
+    push(rows, cells)
+    let nt = {}
+    nt["cols"] = db_copy_array(t["cols"])
+    nt["rows"] = rows
+    fresh[name] = nt
+    let r = db_res(1, "")
+    r = db_pushline(r, "ok: 1")
+    return pack_fresh(fresh, r)
+}
+
+// db_stmt_select handles SELECT *|cols FROM t.
+public func db_stmt_select(db, rest) {
+    let fresh = db_copy_tables(db)
+    let low = db_lower(rest)
+    let at = db_find(low, " from ")
+    if (at < 0) {
+        let r = db_res(0, "expected FROM")
+        return pack_fresh(fresh, r)
+    }
+    let colpart = trim(substr(rest, 0, at))
+    let tail = trim(substr(rest, at + 6, len(rest) - at - 6))
+    let name = db_first(tail)
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let t = fresh[name]
+    // Optional single "WHERE col = value" equality filter (A20).
+    let cond = ""
+    let after = db_rest(tail)
+    if (db_starts(db_lower(after), "where ") == 1) {
+        cond = trim(substr(after, 6, len(after) - 6))
+    }
+    let want = []
+    let all = 0
+    if (colpart == "*") {
+        all = 1
+    } else {
+        want = db_split_trim(colpart, ",")
+    }
+    let idx = []
+    if (all == 1) {
+        idx = db_all_idx(t)
+    } else {
+        let k = 0
+        while (k < len(want)) {
+            let c = db_col_index(t, want[k])
+            if (c < 0) {
+                let r = db_res(0, "no such column: " + want[k])
+                return pack_fresh(fresh, r)
+            }
+            push(idx, c)
+            k = k + 1
+        }
+    }
+    let r = db_res(1, "")
+    let head = ""
+    let h = 0
+    while (h < len(idx)) {
+        if (h > 0) {
+            head = head + "|"
+        }
+        head = head + t["cols"][idx[h]]
+        h = h + 1
+    }
+    r = db_pushline(r, "cols: " + head)
+    let rows = t["rows"]
+    // Apply the WHERE filter first (no filter when cond is empty).
+    let kept = []
+    let f = 0
+    while (f < len(rows)) {
+        if (len(cond) == 0) {
+            push(kept, rows[f])
+        } else {
+            if (db_match(t, rows[f], cond) == 1) {
+                push(kept, rows[f])
+            }
+        }
+        f = f + 1
+    }
+    let i = 0
+    while (i < len(kept)) {
+        let line = ""
+        let j = 0
+        while (j < len(idx)) {
+            if (j > 0) {
+                line = line + "|"
+            }
+            line = line + db_decode(kept[i][idx[j]])
+            j = j + 1
+        }
+        r = db_pushline(r, line)
+        i = i + 1
+    }
+    r = db_pushline(r, "rows: " + str(len(kept)))
+    return pack_fresh(fresh, r)
+}
+
+// db_all_idx returns 0..n-1 for a table.
+public func db_all_idx(t) {
+    let out = []
+    let i = 0
+    while (i < len(t["cols"])) {
+        push(out, i)
+        i = i + 1
+    }
+    return out
+}
+
+// db_split_where splits tail on the first case-insensitive " where ".
+public func db_split_where(tail) {
+    let r = {}
+    r["left"] = ""
+    r["right"] = ""
+    r["found"] = 0
+    let at = db_find(db_lower(tail), " where ")
+    if (at < 0) {
+        return r
+    }
+    r["left"] = trim(substr(tail, 0, at))
+    r["right"] = trim(substr(tail, at + 7, len(tail) - at - 7))
+    r["found"] = 1
+    return r
+}
+
+// db_split_eq splits on the first "=".
+public func db_split_eq(s) {
+    let r = {}
+    r["left"] = ""
+    r["right"] = ""
+    let at = db_find(s, "=")
+    if (at < 0) {
+        return r
+    }
+    r["left"] = trim(substr(s, 0, at))
+    r["right"] = trim(substr(s, at + 1, len(s) - at - 1))
+    return r
+}
+
+// db_match reports whether a stored row satisfies "col = value".
+public func db_match(t, row, cond) {
+    let eq = db_split_eq(cond)
+    let c = db_col_index(t, eq["left"])
+    if (c < 0) {
+        return 0
+    }
+    if (db_value(row[c]) == db_unquote(trim(eq["right"]))) {
+        return 1
+    }
+    return 0
+}
+
+// db_stmt_update handles UPDATE t SET c = v WHERE c = w.
+public func db_stmt_update(db, rest) {
+    let fresh = db_copy_tables(db)
+    let name = db_first(rest)
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let after = db_rest(rest)
+    if (db_starts(db_lower(after), "set ") == 0) {
+        let r = db_res(0, "expected SET")
+        return pack_fresh(fresh, r)
+    }
+    let parts = db_split_where(trim(substr(after, 4, len(after) - 4)))
+    if (parts["found"] == 0) {
+        let r = db_res(0, "expected WHERE")
+        return pack_fresh(fresh, r)
+    }
+    let t = fresh[name]
+    let asg = db_split_eq(parts["left"])
+    let c = db_col_index(t, asg["left"])
+    if (c < 0) {
+        let r = db_res(0, "no such column: " + asg["left"])
+        return pack_fresh(fresh, r)
+    }
+    let nv = db_encode(asg["right"])
+    let rows = t["rows"]
+    let out = []
+    let n = 0
+    let i = 0
+    while (i < len(rows)) {
+        let row = db_copy_array(rows[i])
+        if (db_match(t, rows[i], parts["right"]) == 1) {
+            row[c] = nv
+            n = n + 1
+        }
+        push(out, row)
+        i = i + 1
+    }
+    let nt = {}
+    nt["cols"] = db_copy_array(t["cols"])
+    nt["rows"] = out
+    fresh[name] = nt
+    let r = db_res(1, "")
+    r = db_pushline(r, "ok: " + str(n))
+    return pack_fresh(fresh, r)
+}
+
+// db_stmt_delete handles DELETE FROM t WHERE c = w.
+public func db_stmt_delete(db, rest) {
+    let fresh = db_copy_tables(db)
+    let name = db_first(rest)
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let after = db_rest(rest)
+    if (db_starts(db_lower(after), "where ") == 0) {
+        let r = db_res(0, "expected WHERE")
+        return pack_fresh(fresh, r)
+    }
+    let cond = trim(substr(after, 6, len(after) - 6))
+    let t = fresh[name]
+    let out = []
+    let n = 0
+    let i = 0
+    while (i < len(t["rows"])) {
+        if (db_match(t, t["rows"][i], cond) == 1) {
+            n = n + 1
+        } else {
+            push(out, db_copy_array(t["rows"][i]))
+        }
+        i = i + 1
+    }
+    let nt = {}
+    nt["cols"] = db_copy_array(t["cols"])
+    nt["rows"] = out
+    fresh[name] = nt
+    let r = db_res(1, "")
+    r = db_pushline(r, "ok: " + str(n))
+    return pack_fresh(fresh, r)
+}
+
+// db_stmt_drop handles DROP TABLE t.
+public func db_stmt_drop(db, rest) {
+    let fresh = db_copy_tables(db)
+    let name = db_first(rest)
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let keep = {}
+    let names = map_keys_of(fresh)
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] != name) {
+            keep[names[i]] = fresh[names[i]]
+        }
+        i = i + 1
+    }
+    let r = db_res(1, "")
+    r = db_pushline(r, "ok")
+    return pack_fresh(keep, r)
+}
+
+// db_stmt_tables lists tables sorted.
+public func db_stmt_tables(db) {
+    let fresh = db_copy_tables(db)
+    let names = db_sort(map_keys_of(fresh))
+    let r = db_res(1, "")
+    let i = 0
+    while (i < len(names)) {
+        r = db_pushline(r, names[i])
+        i = i + 1
+    }
+    r = db_pushline(r, "tables: " + str(len(names)))
+    return pack_fresh(fresh, r)
+}
+
+// db_stmt_schema prints cols of one table.
+public func db_stmt_schema(db, name) {
+    let fresh = db_copy_tables(db)
+    if (hasKey(fresh, name) == 0) {
+        let r = db_res(0, "no such table: " + name)
+        return pack_fresh(fresh, r)
+    }
+    let t = fresh[name]
+    let line = ""
+    let i = 0
+    while (i < len(t["cols"])) {
+        if (i > 0) {
+            line = line + "|"
+        }
+        line = line + t["cols"][i]
+        i = i + 1
+    }
+    let r = db_res(1, "")
+    r = db_pushline(r, "cols: " + line)
+    r = db_pushline(r, "rows: " + str(len(t["rows"])))
+    return pack_fresh(fresh, r)
+}
+
+// ---- persistence ----
+
+// db_save writes tables in line format. Returns 1/0.
+public func db_save(path, db) {
+    let text = "#karkain-db-v1\n"
+    let names = db_sort(map_keys_of(db["tables"]))
+    let i = 0
+    while (i < len(names)) {
+        let t = db["tables"][names[i]]
+        let head = "T|" + names[i] + "|"
+        let c = 0
+        while (c < len(t["cols"])) {
+            if (c > 0) {
+                head = head + ","
+            }
+            head = head + t["cols"][c]
+            c = c + 1
+        }
+        text = text + head + "\n"
+        let j = 0
+        while (j < len(t["rows"])) {
+            let line = "R|" + names[i]
+            let k = 0
+            while (k < len(t["rows"][j])) {
+                line = line + "|" + t["rows"][j][k]
+                k = k + 1
+            }
+            text = text + line + "\n"
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return writeFile(path, text)
+}
+
+// db_load reads a db file; missing/empty/corrupt-tolerant (bad lines
+// skipped). Returns { ok, error, db }.
+public func db_load(path) {
+    let r = {}
+    r["ok"] = 1
+    r["error"] = ""
+    let d = db_blank()
+    let content = readFile(path)
+    if (len(content) == 0) {
+        r["db"] = d
+        return r
+    }
+    let tables = {}
+    let lines = split(content, "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        let fields = split(line, "|")
+        if (len(fields) < 2) {
+            continue
+        }
+        if (trim(fields[0]) == "T") {
+            if (len(fields) < 3) {
+                continue
+            }
+            let t = {}
+            t["cols"] = db_split_trim(fields[2], ",")
+            t["rows"] = []
+            tables[trim(fields[1])] = t
+            continue
+        }
+        if (trim(fields[0]) == "R") {
+            let tname = trim(fields[1])
+            if (hasKey(tables, tname) == 0) {
+                continue
+            }
+            let row = []
+            let k = 2
+            while (k < len(fields)) {
+                push(row, trim(fields[k]))
+                k = k + 1
+            }
+            let t = tables[tname]
+            if (len(row) != len(t["cols"])) {
+                continue
+            }
+            let rows = db_copy_array(t["rows"])
+            push(rows, row)
+            let nt = {}
+            nt["cols"] = db_copy_array(t["cols"])
+            nt["rows"] = rows
+            tables[tname] = nt
+            continue
+        }
+    }
+    d["tables"] = tables
+    r["db"] = d
+    return r
+}

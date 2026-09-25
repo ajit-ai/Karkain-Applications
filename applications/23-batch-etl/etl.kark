@@ -1,0 +1,112 @@
+// etl.kark — Phase 008 service helpers (A36/A38/A39/A40/A41/A42).
+//
+// Shared parsing for the batch/ETL service app: CSV rows, INI-subset
+// config lookup, first-token split, non-blank line lists. Verified
+// builtins only: readFile/writeFile/split/trim/substr/len/push.
+
+// svc_lines returns non-blank trimmed lines (keeps # comments for callers).
+public func svc_lines(text) {
+    let out = []
+    let parts = split(text, "\n")
+    let i = 0
+    while (i < len(parts)) {
+        let line = trim(parts[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        push(out, line)
+    }
+    return out
+}
+
+// svc_first returns the leading whitespace-delimited token.
+public func svc_first(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        if (substr(t, i, 1) == " ") {
+            break
+        }
+        i = i + 1
+    }
+    return substr(t, 0, i)
+}
+
+// svc_csv splits text into rows of trimmed fields (no quoted commas).
+public func svc_csv(text) {
+    let out = []
+    let lines = svc_lines(text)
+    let i = 0
+    while (i < len(lines)) {
+        if (substr(lines[i], 0, 1) == "#") {
+            i = i + 1
+            continue
+        }
+        let fields = split(lines[i], ",")
+        let row = []
+        let k = 0
+        while (k < len(fields)) {
+            push(row, trim(fields[k]))
+            k = k + 1
+        }
+        push(out, row)
+        i = i + 1
+    }
+    return out
+}
+
+// svc_find returns the first index of sub in text, or -1 (local copy;
+// modules must not assume cross-module resolution).
+public func svc_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if (m == 0) {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if (substr(text, i, m) == sub) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// svc_ini_get returns the value of key under [section], or "".
+// Lines: [section], key = value, # comments. Case-sensitive.
+public func svc_ini_get(text, section, key) {
+    let want = "[" + section + "]"
+    let insec = 0
+    let lines = svc_lines(text)
+    let i = 0
+    while (i < len(lines)) {
+        let line = lines[i]
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        if (substr(line, 0, 1) == "[") {
+            if (trim(line) == want) {
+                insec = 1
+            } else {
+                insec = 0
+            }
+            continue
+        }
+        if (insec == 1) {
+            let at = svc_find(line, "=")
+            if (at > 0) {
+                let k = trim(substr(line, 0, at))
+                if (k == key) {
+                    return trim(substr(line, at + 1, len(line) - at - 1))
+                }
+            }
+        }
+    }
+    return ""
+}

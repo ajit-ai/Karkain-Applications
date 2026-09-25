@@ -1,0 +1,167 @@
+// app.kark — Phase 012 Flagship CLI Operations Console (A62+ console).
+//
+// The GUI portion is blocked under CAP-006; this is the CLI console
+// path only. It aggregates verified capabilities — filesystem,
+// SQL-subset database, TCP health probes, batch sessions — into one
+// operations surface with scripted runbooks and file reports.
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   console status <workdir>              seed + lab status dashboard
+//   console session <runbook> <workdir>   seed + numbered transcript
+//   console report <runbook> <workdir> <out>  session + write transcript
+// Runbook commands: status | db-query <SQL> | probe <host> <port> |
+// show <workdir-relative-path>. Unknown commands are reported, not
+// executed. SELECT-only queries are honored by convention; the engine
+// would execute any statement, so runbooks are operator-trusted input
+// (documented).
+import console
+import db_sql
+
+func console_usage() {
+    println("Usage: console status <workdir>")
+    println("Usage: console session <runbook> <workdir>")
+    println("Usage: console report <runbook> <workdir> <outfile>")
+}
+
+// run_session seeds the workdir, executes the runbook, returns transcript.
+// All accumulation is local: helpers return line arrays, appended here.
+func run_session(runbook, workdir) {
+    let out = []
+    let dbfile = con_seed(workdir)
+    push(out, "session: start")
+    let text = readFile(runbook)
+    let parts = split(text, "\n")
+    let n = 0
+    let ok = 0
+    let i = 0
+    while (i < len(parts)) {
+        let line = trim(parts[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        n = n + 1
+        let cmd = con_first(line)
+        let rest = con_rest(line)
+        push(out, str(n) + "> " + line)
+        if (cmd == "status") {
+            let sl = con_status_lines(dbfile)
+            let a = 0
+            while (a < len(sl)) {
+                push(out, sl[a])
+                a = a + 1
+            }
+            ok = ok + 1
+            continue
+        }
+        if (cmd == "db-query") {
+            let ql = con_query_lines(dbfile, rest)
+            let b = 0
+            while (b < len(ql)) {
+                push(out, ql[b])
+                b = b + 1
+            }
+            if (len(ql) > 0) {
+                if (substr(ql[0], 0, 6) != "error:") {
+                    ok = ok + 1
+                }
+            }
+            continue
+        }
+        if (cmd == "probe") {
+            let host = con_first(rest)
+            let port = con_rest(rest)
+            if (len(host) == 0) {
+                push(out, "error: bad probe")
+                continue
+            }
+            push(out, con_probe_line(host, int(port)))
+            ok = ok + 1
+            continue
+        }
+        if (cmd == "show") {
+            let vl = con_show_lines(workdir + "/" + rest)
+            let c = 0
+            while (c < len(vl)) {
+                push(out, vl[c])
+                c = c + 1
+            }
+            if (len(vl) > 0) {
+                if (substr(vl[0], 0, 6) != "error:") {
+                    ok = ok + 1
+                }
+            }
+            continue
+        }
+        push(out, "error: unknown command: " + cmd)
+    }
+    push(out, "session: " + str(n) + " steps ok=" + str(ok))
+    return out
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        console_usage()
+        return
+    }
+    if (args[1] == "status") {
+        if (len(args) < 3) {
+            console_usage()
+            return
+        }
+        let out = []
+        let dbfile = con_seed(args[2])
+        push(out, "console: status")
+        let sl = con_status_lines(dbfile)
+        let a = 0
+        while (a < len(sl)) {
+            push(out, sl[a])
+            a = a + 1
+        }
+        let p = 0
+        while (p < len(out)) {
+            println(out[p])
+            p = p + 1
+        }
+        return
+    }
+    if (args[1] == "session") {
+        if (len(args) < 4) {
+            console_usage()
+            return
+        }
+        let rep = run_session(args[2], args[3])
+        let q = 0
+        while (q < len(rep)) {
+            println(rep[q])
+            q = q + 1
+        }
+        return
+    }
+    if (args[1] == "report") {
+        if (len(args) < 5) {
+            console_usage()
+            return
+        }
+        let rep2 = run_session(args[2], args[3])
+        let text = ""
+        let i = 0
+        while (i < len(rep2)) {
+            text = text + rep2[i] + "\n"
+            i = i + 1
+        }
+        writeFile(args[4], text)
+        let j = 0
+        while (j < len(rep2)) {
+            println(rep2[j])
+            j = j + 1
+        }
+        println("wrote lines=" + str(len(rep2)))
+        return
+    }
+    console_usage()
+}

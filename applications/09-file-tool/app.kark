@@ -1,0 +1,98 @@
+// app.kark — A02 File Management Utility (Phase 005).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   file-tool list <dir>
+//   file-tool cat <file>
+//   file-tool exists <path>
+//   file-tool write <file> <content>
+//   file-tool delete <file>
+//   file-tool search <dir> <needle>
+// Deliberately flat (no recursion) and without copy/move/rename/stat —
+// those have no Karkain 1.1.0 builtin (CAP-009). See README.rst.
+import file_tool
+
+func tool_usage() {
+    println("Usage: file-tool list <dir>")
+    println("Usage: file-tool cat <file>")
+    println("Usage: file-tool exists <path>")
+    println("Usage: file-tool write <file> <content>")
+    println("Usage: file-tool delete <file>")
+    println("Usage: file-tool search <dir> <needle>")
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        tool_usage()
+        return
+    }
+    let mode = args[1]
+    if (mode == "list") {
+        let names = file_tool.tool_list(args[2])
+        if (len(names) == 0) {
+            println("(empty)")
+            return
+        }
+        let i = 0
+        while (i < len(names)) {
+            println(names[i])
+            i = i + 1
+        }
+        return
+    }
+    if (mode == "cat") {
+        let r = file_tool.tool_cat(args[2])
+        if (r["ok"] == 0) {
+            println("error: cannot read " + args[2])
+            return
+        }
+        println(r["content"])
+        return
+    }
+    if (mode == "exists") {
+        if (file_tool.tool_exists(args[2]) == 1) {
+            println("exists: yes")
+        } else {
+            println("exists: no")
+        }
+        return
+    }
+    if (mode == "write") {
+        if (len(args) < 4) {
+            tool_usage()
+            return
+        }
+        if (file_tool.tool_write(args[2], args[3]) == 1) {
+            println("written: " + args[2])
+        } else {
+            println("error: cannot write " + args[2])
+        }
+        return
+    }
+    if (mode == "delete") {
+        if (file_tool.tool_delete(args[2]) == 1) {
+            println("deleted: " + args[2])
+        } else {
+            println("error: cannot delete " + args[2])
+        }
+        return
+    }
+    if (mode == "search") {
+        if (len(args) < 4) {
+            tool_usage()
+            return
+        }
+        let hits = file_tool.tool_search(args[2], args[3])
+        if (len(hits) == 0) {
+            println("(none)")
+            return
+        }
+        let i = 0
+        while (i < len(hits)) {
+            println(hits[i])
+            i = i + 1
+        }
+        return
+    }
+    tool_usage()
+}

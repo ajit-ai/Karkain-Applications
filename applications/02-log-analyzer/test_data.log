@@ -1,0 +1,10 @@
+2026-01-01 INFO service started
+2026-01-01 INFO request accepted
+2026-01-01 WARN slow request
+2026-01-01 ERROR database unavailable
+2026-01-01 INFO request completed
+2026-01-02 INFO service started
+2026-01-02 WARN high memory
+2026-01-02 ERROR timeout reached
+2026-01-02 INFO request accepted
+2026-01-02 OOPS broken line here

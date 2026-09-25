@@ -1,0 +1,6 @@
+// demo main module
+import util
+
+func main() {
+    println(util.double(21))
+}

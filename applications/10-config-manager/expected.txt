@@ -1,0 +1,4 @@
+limits.debug = off
+limits.retries = 3
+server.host = 127.0.0.1
+server.port = 8080

@@ -1,0 +1,35 @@
+// tcp_client.kark — A13 TCP client (Phase 004).
+//
+// Raw-message client over verified Karkain 1.1.0 builtins:
+// net_connect / net_write / net_read / net_close / net_last_error.
+// No framing: exactly the bytes of message are sent; the reply is whatever
+// the server writes back (up to 4096 bytes, single read).
+public func tcp_client_run(host, port, message) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["sent"] = ""
+    r["received"] = ""
+    let fd = net_connect(host, port)
+    if (fd < 0) {
+        r["error"] = net_last_error()
+        println("client: connect failed: " + r["error"])
+        return r
+    }
+    println("client: connected " + host + ":" + str(port))
+    let w = net_write(fd, message)
+    if (w < 0) {
+        r["error"] = net_last_error()
+        println("client: send failed: " + r["error"])
+        net_close(fd)
+        return r
+    }
+    println("client: sent " + message)
+    let resp = net_read(fd, 4096)
+    println("client: received " + resp)
+    net_close(fd)
+    r["ok"] = 1
+    r["sent"] = message
+    r["received"] = resp
+    return r
+}

@@ -1,0 +1,6 @@
+expected-1-list-empty.txt	client	127.0.0.1	49072	GET	/tasks
+expected-2-create.txt	client	127.0.0.1	49072	POST	/tasks	Buy milk
+expected-3-list.txt	client	127.0.0.1	49072	GET	/tasks
+expected-4-update.txt	client	127.0.0.1	49072	PUT	/tasks/1	done
+expected-5-get.txt	client	127.0.0.1	49072	GET	/tasks/1
+expected-6-del-missing.txt	client	127.0.0.1	49072	DELETE	/tasks/9

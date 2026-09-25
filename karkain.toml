@@ -1,0 +1,20 @@
+# Karkain-Applications workspace manifest.
+# Requires Karkain 1.1.0 (language repository: https://github.com/ajit-ai/Karkain,
+# branch develop, executable karkain.exe).
+# Only fields used here are genuine Karkain 1.1.0 manifest fields
+# (name, version, description, repository, targets); see
+# Karkain pkg/pm/manager.go (Manifest: name/version/author/description/license/
+# repository/targets, [dependencies], [dev-dependencies]).
+#
+# IMPORTANT CONSTRAINT (Phase 001): std.* resolution depends on Karkain's
+# repository layout (module resolver searches for stdlib/ relative to the
+# project root/upward hierarchy). This repository does NOT vendor stdlib/
+# in Phase 001. Applications must document their execution environment
+# explicitly; the supported development arrangement is to execute the
+# Karkain toolchain with the Karkain repository as toolchain root.
+# Future package/vendoring work is out of scope for Phase 001.
+name = "karkain-applications"
+version = "0.1.0"
+description = "Real-world application and capability laboratory for Karkain 1.1.0. Foundation only, no applications implemented in Phase 001."
+repository = "https://github.com/ajit-ai/Karkain-Applications.git"
+targets = ["native"]

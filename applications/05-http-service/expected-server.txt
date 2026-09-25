@@ -1,0 +1,4 @@
+server: listening 127.0.0.1:49071
+server: GET /hello -> 200
+server: GET /nope -> 404
+server: POST /status -> 404

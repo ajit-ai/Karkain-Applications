@@ -1,0 +1,5 @@
+status
+db-query SELECT * FROM inventory
+probe 127.0.0.1 49191
+show note.txt
+db-query SELECT name, qty FROM inventory WHERE qty = 30

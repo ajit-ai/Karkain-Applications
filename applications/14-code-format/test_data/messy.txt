@@ -1,0 +1,9 @@
+func hello(name) {   
+    println(name);	    
+}
+	  
+// trailing whitespace above   
+
+func answer() {
+	return 42;  
+}

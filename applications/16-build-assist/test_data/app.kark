@@ -1,0 +1,4 @@
+// demo entrypoint
+func main() {
+    println("demo")
+}

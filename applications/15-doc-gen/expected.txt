@@ -1,0 +1,10 @@
+## mod1.kark
+funcs:
+- public func total(items) {
+- public func price(sku) {
+comments: 2
+## mod2.kark
+funcs:
+- public func restock(sku, qty) {
+- func helper() {
+comments: 1

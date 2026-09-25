@@ -1,0 +1,6 @@
+item 1: 2
+item 2: 4
+item 3: 6
+item 4: 8
+item 5: 10
+sum: 30

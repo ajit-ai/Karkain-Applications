@@ -1,0 +1,171 @@
+// tasks.kark — in-memory task store for A18 (Phase 006).
+//
+// Store shape: { next, ids, titles, states }. ids/titles/states are
+// parallel arrays; ids are never reused after DELETE. All functions take
+// the store map. Validation errors are returned as { ok: 0, error } maps
+// from the mutating ops; lookups return indexes (-1 = missing).
+
+// tasks_new returns an empty store.
+public func tasks_new() {
+    let s = {}
+    s["next"] = 1
+    s["ids"] = []
+    s["titles"] = []
+    s["states"] = []
+    return s
+}
+
+// tasks_index returns the position of id, or -1.
+public func tasks_index(store, id) {
+    let ids = store["ids"]
+    let i = 0
+    while (i < len(ids)) {
+        if (ids[i] == id) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// tasks_is_digits reports whether s is a non-empty digit string.
+public func tasks_is_digits(s) {
+    if (len(s) == 0) {
+        return 0
+    }
+    let i = 0
+    while (i < len(s)) {
+        let c = s[i]
+        if (c == "0") {
+            i = i + 1
+            continue
+        }
+        if (c == "1") {
+            i = i + 1
+            continue
+        }
+        if (c == "2") {
+            i = i + 1
+            continue
+        }
+        if (c == "3") {
+            i = i + 1
+            continue
+        }
+        if (c == "4") {
+            i = i + 1
+            continue
+        }
+        if (c == "5") {
+            i = i + 1
+            continue
+        }
+        if (c == "6") {
+            i = i + 1
+            continue
+        }
+        if (c == "7") {
+            i = i + 1
+            continue
+        }
+        if (c == "8") {
+            i = i + 1
+            continue
+        }
+        if (c == "9") {
+            i = i + 1
+            continue
+        }
+        return 0
+    }
+    return 1
+}
+
+// tasks_create appends an open task; returns { ok, id, error }.
+public func tasks_create(store, title) {
+    let r = {}
+    r["ok"] = 0
+    r["id"] = 0
+    r["error"] = ""
+    if (len(trim(title)) == 0) {
+        r["error"] = "empty title"
+        return r
+    }
+    let id = store["next"]
+    let ids = store["ids"]
+    let titles = store["titles"]
+    let states = store["states"]
+    push(ids, id)
+    push(titles, trim(title))
+    push(states, "open")
+    store["ids"] = ids
+    store["titles"] = titles
+    store["states"] = states
+    store["next"] = id + 1
+    r["ok"] = 1
+    r["id"] = id
+    return r
+}
+
+// tasks_format renders one task line: "id: title [state]".
+public func tasks_format(store, pos) {
+    return str(store["ids"][pos]) + ": " + store["titles"][pos] + " [" + store["states"][pos] + "]"
+}
+
+// tasks_list renders the whole collection.
+public func tasks_list(store) {
+    let out = "tasks: " + str(len(store["ids"]))
+    let i = 0
+    while (i < len(store["ids"])) {
+        out = out + "\n" + tasks_format(store, i)
+        i = i + 1
+    }
+    return out
+}
+
+// tasks_remove deletes id; returns 1/0.
+public func tasks_remove(store, id) {
+    let pos = tasks_index(store, id)
+    if (pos < 0) {
+        return 0
+    }
+    let ids = []
+    let titles = []
+    let states = []
+    let i = 0
+    while (i < len(store["ids"])) {
+        if (i != pos) {
+            push(ids, store["ids"][i])
+            push(titles, store["titles"][i])
+            push(states, store["states"][i])
+        }
+        i = i + 1
+    }
+    store["ids"] = ids
+    store["titles"] = titles
+    store["states"] = states
+    return 1
+}
+
+// tasks_set_state sets open/done; returns { ok, error }.
+public func tasks_set_state(store, id, state) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    if (state != "open") {
+        if (state != "done") {
+            r["error"] = "bad status"
+            return r
+        }
+    }
+    let pos = tasks_index(store, id)
+    if (pos < 0) {
+        r["error"] = "not found"
+        return r
+    }
+    let states = store["states"]
+    states[pos] = state
+    store["states"] = states
+    r["ok"] = 1
+    return r
+}

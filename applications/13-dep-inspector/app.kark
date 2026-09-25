@@ -1,0 +1,30 @@
+// app.kark — A09 Dependency Inspector (Phase 005).
+//
+// Usage (built binary): dep-inspector <manifest-file>
+// Prints package name/version plus sorted dependency -> version lines.
+// Textual heuristic over genuine karkain.toml fields; not a resolver.
+// See README.rst.
+import deps_parse
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: dep-inspector <manifest-file>")
+        return
+    }
+    let r = deps_parse.deps_parse(args[1])
+    if (r["ok"] == 0) {
+        println("error: cannot read " + args[1])
+        return
+    }
+    println("name: " + r["name"])
+    println("version: " + r["version"])
+    let deps = r["deps"]
+    let keys = deps_parse.deps_sort(map_keys_of(deps))
+    println("dependencies: " + str(len(keys)))
+    let i = 0
+    while (i < len(keys)) {
+        println(keys[i] + " = " + deps[keys[i]])
+        i = i + 1
+    }
+}

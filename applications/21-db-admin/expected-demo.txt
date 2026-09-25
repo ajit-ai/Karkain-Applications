@@ -1,0 +1,38 @@
+== seed ==
+seeded
+== inspect ==
+exists: yes
+format: karkain-db-v1
+tables: 2
+table: products cols=3 rows=3
+table: suppliers cols=2 rows=2
+rows: 5
+== tables ==
+products: 3 rows
+suppliers: 2 rows
+tables: 2
+== schema-products ==
+cols: id|name|price
+rows: 3
+== schema-suppliers ==
+cols: id|name
+rows: 2
+== validate ==
+valid
+== stats ==
+tables: 2
+products: cols=3 rows=3
+suppliers: cols=2 rows=2
+total-rows: 5
+int-cells: 8
+string-cells: 5
+== dump ==
+#karkain-db-v1
+T|products|id,name,price
+R|products|i:1|s:pen|i:120
+R|products|i:2|s:notebook|i:450
+R|products|i:3|s:eraser|i:60
+T|suppliers|id,name
+R|suppliers|i:1|s:acme
+R|suppliers|i:2|s:globex
+done

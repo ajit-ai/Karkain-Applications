@@ -1,0 +1,148 @@
+// adv.kark — Phase 011 advanced helpers (A81 studio, A87 workbench).
+//
+// Self-contained (no cross-module calls): CSV rows, studio seed/diff/
+// copy over the db_sql engine maps, workbench line-total transform.
+// Verified builtins only: readFile/writeFile/split/trim/substr/int/len/
+// push. All orchestration results print from app.kark.
+
+// adv_rows splits CSV text into trimmed field rows (skips #/blanks).
+public func adv_rows(text) {
+    let out = []
+    let parts = split(text, "\n")
+    let i = 0
+    while (i < len(parts)) {
+        let line = trim(parts[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        let fields = split(line, ",")
+        let row = []
+        let k = 0
+        while (k < len(fields)) {
+            push(row, trim(fields[k]))
+            k = k + 1
+        }
+        push(out, row)
+    }
+    return out
+}
+
+// adv_seed_shop builds a deterministic shop db from fixed SQL (A81).
+public func adv_seed_shop(dbfile, tag) {
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let stmts = []
+    push(stmts, "CREATE TABLE products (id, name, price)")
+    push(stmts, "INSERT INTO products VALUES (1, 'pen', 120)")
+    push(stmts, "INSERT INTO products VALUES (2, 'notebook', 450)")
+    push(stmts, "CREATE TABLE suppliers (id, name)")
+    push(stmts, "INSERT INTO suppliers VALUES (1, 'acme')")
+    if (tag == "b") {
+        push(stmts, "INSERT INTO suppliers VALUES (2, 'globex')")
+        push(stmts, "CREATE TABLE orders (id, total)")
+        push(stmts, "INSERT INTO orders VALUES (1, 900)")
+    }
+    let i = 0
+    while (i < len(stmts)) {
+        let made = db_exec(db, stmts[i])
+        db = made["db"]
+        i = i + 1
+    }
+    db_save(dbfile, db)
+    return db
+}
+
+// adv_rowcount returns the row count of table or -1 when missing.
+public func adv_rowcount(db, table) {
+    let q = db_exec(db, "SELECT * FROM " + table)
+    if (q["res"]["ok"] == 0) {
+        return -1
+    }
+    let lines = q["res"]["lines"]
+    return len(lines) - 2
+}
+
+// adv_difflines compares two loaded dbs; returns report lines (A81).
+public func adv_difflines(dba, dbb) {
+    let out = []
+    let na = db_sort(map_keys_of(dba["tables"]))
+    let nb = db_sort(map_keys_of(dbb["tables"]))
+    let i = 0
+    while (i < len(na)) {
+        if (hasKey(dbb["tables"], na[i]) == 0) {
+            push(out, "only-in-a: " + na[i])
+        } else {
+            let ca = len(dba["tables"][na[i]]["rows"])
+            let cb = len(dbb["tables"][na[i]]["rows"])
+            push(out, "common: " + na[i] + " a=" + str(ca) + " b=" + str(cb))
+        }
+        i = i + 1
+    }
+    let j = 0
+    while (j < len(nb)) {
+        if (hasKey(dba["tables"], nb[j]) == 0) {
+            push(out, "only-in-b: " + nb[j])
+        }
+        j = j + 1
+    }
+    push(out, "tables: a=" + str(len(na)) + " b=" + str(len(nb)))
+    return out
+}
+
+// adv_copy_table copies table from src db map into dst db map (A81).
+// Returns { db, n } with the fresh dst map and rows copied.
+public func adv_copy_table(src, dst, table) {
+    let r = {}
+    r["n"] = 0
+    let q = db_exec(src, "SELECT * FROM " + table)
+    if (q["res"]["ok"] == 0) {
+        r["db"] = dst
+        r["error"] = q["res"]["error"]
+        return r
+    }
+    let lines = q["res"]["lines"]
+    let head = substr(lines[0], 6, len(lines[0]) - 6)
+    let cparts = split(head, "|")
+    let colcsv = ""
+    let m = 0
+    while (m < len(cparts)) {
+        if (m > 0) {
+            colcsv = colcsv + ", "
+        }
+        colcsv = colcsv + cparts[m]
+        m = m + 1
+    }
+    let c0 = db_exec(dst, "DROP TABLE " + table)
+    let work = c0["db"]
+    let c1 = db_exec(work, "CREATE TABLE " + table + " (" + colcsv + ")")
+    work = c1["db"]
+    let n = 0
+    let i = 1
+    while (i < len(lines) - 1) {
+        let cells = split(lines[i], "|")
+        let vals = ""
+        let k = 0
+        while (k < len(cells)) {
+            if (k > 0) {
+                vals = vals + ", "
+            }
+            vals = vals + "'" + cells[k] + "'"
+            k = k + 1
+        }
+        let ins = db_exec(work, "INSERT INTO " + table + " VALUES (" + vals + ")")
+        if (ins["res"]["ok"] == 1) {
+            work = ins["db"]
+            n = n + 1
+        }
+        i = i + 1
+    }
+    r["db"] = work
+    r["n"] = n
+    r["error"] = ""
+    return r
+}

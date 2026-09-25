@@ -1,0 +1,37 @@
+== seed ==
+ok
+ok: 1
+ok: 1
+seeded
+== initial ==
+cols: name|balance
+alice|100
+bob|50
+rows: 2
+== transfer-ok ==
+committed: alice -> bob 30
+== after-ok ==
+cols: name|balance
+alice|70
+bob|80
+rows: 2
+== transfer-fail ==
+error: no such account: nobody, rolled back
+== after-fail ==
+cols: name|balance
+alice|70
+bob|80
+rows: 2
+== transfer-overdraft ==
+error: insufficient funds: bob has 80
+== after-overdraft ==
+cols: name|balance
+alice|70
+bob|80
+rows: 2
+== reload ==
+cols: name|balance
+alice|70
+bob|80
+rows: 2
+done

@@ -1,0 +1,11 @@
+// orders module - demo corpus
+import stock
+
+public func total(items) {
+    return stock.count(items)
+}
+
+// price lookup helper
+public func price(sku) {
+    return 100
+}

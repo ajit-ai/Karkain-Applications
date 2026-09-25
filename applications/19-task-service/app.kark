@@ -1,0 +1,183 @@
+// app.kark — A22 Database-Backed Task Service (Phase 006).
+//
+// Modes (built binary):
+//   task-service server <port> <maxRequests> <dbfile>
+//   task-service client <host> <port> <method> <path> [body]
+// Same routes as A18 (GET/POST/PUT/DELETE /tasks[/N], text/plain, no JSON)
+// plus file persistence: the store loads from dbfile at startup and saves
+// after every mutation. Layering: HTTP codec -> dispatch -> tasks store ->
+// taskdb file. Single-threaded; serves maxRequests then exits.
+// Deterministic runs start from a fresh (missing/empty) dbfile, which the
+// service creates on first save.
+import http_codec
+import tasks
+import taskdb
+
+func svc_usage() {
+    println("Usage: task-service server <port> <maxRequests> <dbfile>")
+    println("Usage: task-service client <host> <port> <method> <path> [body]")
+}
+
+public func svc_dispatch(conn, store, dbfile, req) {
+    let status = 404
+    let reason = "Not Found"
+    let body = "error: not found"
+    let segs = split(req["path"], "/")
+    if (len(segs) == 1) {
+        if (segs[0] == "tasks") {
+            if (req["method"] == "GET") {
+                status = 200
+                reason = "OK"
+                body = tasks.tasks_list(store)
+            }
+            if (req["method"] == "POST") {
+                if (taskdb.taskdb_has_bar(req["body"]) == 1) {
+                    status = 400
+                    reason = "Bad Request"
+                    body = "error: bad title"
+                } else {
+                    let made = tasks.tasks_create(store, req["body"])
+                    if (made["ok"] == 1) {
+                        if (taskdb.taskdb_save(dbfile, store) == 1) {
+                            status = 201
+                            reason = "Created"
+                            body = "created: " + str(made["id"])
+                        } else {
+                            status = 500
+                            reason = "Internal Server Error"
+                            body = "error: save failed"
+                        }
+                    } else {
+                        status = 400
+                        reason = "Bad Request"
+                        body = "error: " + made["error"]
+                    }
+                }
+            }
+        }
+    }
+    if (len(segs) == 2) {
+        if (segs[0] == "tasks") {
+            if (tasks.tasks_is_digits(segs[1]) == 1) {
+                let id = int(segs[1])
+                if (req["method"] == "GET") {
+                    let pos = tasks.tasks_index(store, id)
+                    if (pos >= 0) {
+                        status = 200
+                        reason = "OK"
+                        body = tasks.tasks_format(store, pos)
+                    }
+                }
+                if (req["method"] == "PUT") {
+                    let upd = tasks.tasks_set_state(store, id, trim(req["body"]))
+                    if (upd["ok"] == 1) {
+                        if (taskdb.taskdb_save(dbfile, store) == 1) {
+                            status = 200
+                            reason = "OK"
+                            body = "updated: " + str(id)
+                        } else {
+                            status = 500
+                            reason = "Internal Server Error"
+                            body = "error: save failed"
+                        }
+                    } else {
+                        if (upd["error"] == "not found") {
+                            status = 404
+                            reason = "Not Found"
+                            body = "error: not found"
+                        } else {
+                            status = 400
+                            reason = "Bad Request"
+                            body = "error: " + upd["error"]
+                        }
+                    }
+                }
+                if (req["method"] == "DELETE") {
+                    if (tasks.tasks_remove(store, id) == 1) {
+                        if (taskdb.taskdb_save(dbfile, store) == 1) {
+                            status = 200
+                            reason = "OK"
+                            body = "deleted: " + str(id)
+                        } else {
+                            status = 500
+                            reason = "Internal Server Error"
+                            body = "error: save failed"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let pkt = http_codec.http_build_response(status, reason, body)
+    net_write(conn, pkt)
+    println("server: " + req["method"] + " " + req["path"] + " -> " + str(status))
+    return 1
+}
+
+func svc_serve(port, maxRequests, dbfile) {
+    let store = taskdb.taskdb_load(dbfile)
+    let srv = net_listen("127.0.0.1", port)
+    if (srv < 0) {
+        println("server: listen failed: " + net_last_error())
+        return
+    }
+    println("server: listening 127.0.0.1:" + str(port))
+    let done = 0
+    while (done < maxRequests) {
+        let conn = net_accept(srv)
+        if (conn < 0) {
+            println("server: accept failed: " + net_last_error())
+            break
+        }
+        let req = http_codec.http_read_request(conn)
+        if (req["ok"] == 0) {
+            println("server: bad request: " + req["error"])
+            net_close(conn)
+            done = done + 1
+            continue
+        }
+        svc_dispatch(conn, store, dbfile, req)
+        net_close(conn)
+        done = done + 1
+    }
+    net_close(srv)
+}
+
+func svc_client(host, port, method, path, body) {
+    let resp = http_codec.http_request(host, port, method, path, body)
+    if (resp["ok"] == 0) {
+        println("client: request failed: " + resp["error"])
+        return
+    }
+    println("client: status " + str(resp["status"]))
+    println("client: body " + resp["body"])
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        svc_usage()
+        return
+    }
+    if (args[1] == "server") {
+        if (len(args) < 5) {
+            svc_usage()
+            return
+        }
+        svc_serve(int(args[2]), int(args[3]), args[4])
+        return
+    }
+    if (args[1] == "client") {
+        if (len(args) < 6) {
+            svc_usage()
+            return
+        }
+        let body = ""
+        if (len(args) > 6) {
+            body = args[6]
+        }
+        svc_client(args[2], int(args[3]), args[4], args[5], body)
+        return
+    }
+    svc_usage()
+}

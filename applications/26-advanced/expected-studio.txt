@@ -1,0 +1,15 @@
+seeded
+== diff ==
+common: products a=2 b=2
+common: suppliers a=1 b=2
+only-in-b: orders
+tables: a=2 b=3
+== copy ==
+copied: orders rows=1
+verify: 1
+== rediff ==
+common: orders a=1 b=1
+common: products a=2 b=2
+common: suppliers a=1 b=2
+tables: a=3 b=3
+done

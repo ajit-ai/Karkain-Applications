@@ -1,0 +1,7 @@
+id,customer,amount_cents,status
+1,alice,1200,paid
+2,bob,450,paid
+3,carol,3000,shipped
+4,dave,200,cancelled
+5,erin,750,paid
+6,frank,many,paid

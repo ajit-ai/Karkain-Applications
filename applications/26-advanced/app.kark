@@ -1,0 +1,229 @@
+// app.kark — Phase 011 Advanced (A81/A83/A87/A88).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   adv studio-diff <dbA> <dbB>        A81: table/row-count diff
+//   adv studio-copy <src> <dst> <t>    A81: copy table across databases
+//   adv studio-demo <workdir>          A81: seed A+B, diff, copy, verify
+//   adv health <host> <p...>           A83: TCP service health probes
+//   adv sweep <host> <start> <count>   A88: port-range audit
+//   adv workbench <csv> <dbfile>       A87: sales pipeline + report
+// A82 (IDE), A84 (distributed), A85 (covered by A29), A86 (dev
+// platform) are out of scope: no editor/AST, loopback-only transport,
+// no scaffolding primitives. Documented, not simulated.
+// Health/sweep honesty: a probe is one real TCP connect; DOWN means
+// connection refused with the OS error; no banner grabbing exists.
+import adv
+import db_sql
+
+func adv_usage() {
+    println("Usage: adv studio-diff <dbA> <dbB>")
+    println("Usage: adv studio-copy <srcdb> <dstdb> <table>")
+    println("Usage: adv studio-demo <workdir>")
+    println("Usage: adv health <host> <port...>")
+    println("Usage: adv sweep <host> <start> <count>")
+    println("Usage: adv workbench <csv> <dbfile>")
+}
+
+// run_studio_diff prints the diff report (A81).
+func run_studio_diff(a, b) {
+    let la = db_load(a)
+    let lb = db_load(b)
+    let lines = adv_difflines(la["db"], lb["db"])
+    let i = 0
+    while (i < len(lines)) {
+        println(lines[i])
+        i = i + 1
+    }
+}
+
+// run_studio_copy copies one table across database files (A81).
+func run_studio_copy(src, dst, table) {
+    let ls = db_load(src)
+    let ld = db_load(dst)
+    let r = adv_copy_table(ls["db"], ld["db"], table)
+    if (len(r["error"]) > 0) {
+        println("error: " + r["error"])
+        return
+    }
+    db_save(dst, r["db"])
+    println("copied: " + table + " rows=" + str(r["n"]))
+    let back = db_load(dst)
+    println("verify: " + str(adv_rowcount(back["db"], table)))
+}
+
+// run_studio_demo seeds two shops, diffs, copies, verifies (A81 pin).
+func run_studio_demo(workdir) {
+    let a = workdir + "/shop-a.db"
+    let b = workdir + "/shop-b.db"
+    adv_seed_shop(a, "a")
+    adv_seed_shop(b, "b")
+    println("seeded")
+    println("== diff ==")
+    run_studio_diff(a, b)
+    println("== copy ==")
+    run_studio_copy(b, a, "orders")
+    println("== rediff ==")
+    run_studio_diff(a, b)
+    println("done")
+}
+
+// run_workbench validates sales rows, computes line totals, loads,
+// and reports revenue by status (A87).
+func run_workbench(csvpath, dbfile) {
+    let rows = adv_rows(readFile(csvpath))
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let m0 = db_exec(db, "CREATE TABLE sales (id, item, qty, price, total, status)")
+    db = m0["db"]
+    let loaded = 0
+    let rejected = 0
+    let revenue = 0
+    let i = 1
+    while (i < len(rows)) {
+        let r = rows[i]
+        i = i + 1
+        if (len(r) != 5) {
+            rejected = rejected + 1
+            continue
+        }
+        if (db_is_int(r[2]) == 0) {
+            println("reject: " + r[0] + " bad qty")
+            rejected = rejected + 1
+            continue
+        }
+        if (db_is_int(r[3]) == 0) {
+            println("reject: " + r[0] + " bad price")
+            rejected = rejected + 1
+            continue
+        }
+        let total = int(r[2]) * int(r[3])
+        let ins = db_exec(db, "INSERT INTO sales VALUES (" + r[0] + ", '" + r[1] + "', " + r[2] + ", " + r[3] + ", " + str(total) + ", '" + r[4] + "')")
+        if (ins["res"]["ok"] == 0) {
+            rejected = rejected + 1
+            continue
+        }
+        db = ins["db"]
+        loaded = loaded + 1
+        if (r[4] == "sold") {
+            revenue = revenue + total
+        }
+    }
+    db_save(dbfile, db)
+    println("rows: " + str(len(rows) - 1))
+    println("loaded: " + str(loaded))
+    println("rejected: " + str(rejected))
+    println("revenue_cents: " + str(revenue))
+}
+
+// run_health probes named TCP services; UP/DOWN from real connects (A83).
+func run_health(host, ports, n) {
+    let up = 0
+    let down = 0
+    let i = 0
+    while (i < n) {
+        let c = net_connect(host, ports[i])
+        if (c < 0) {
+            println(host + ":" + str(ports[i]) + " DOWN (" + net_last_error() + ")")
+            net_close(c)
+            down = down + 1
+        } else {
+            println(host + ":" + str(ports[i]) + " UP")
+            net_close(c)
+            up = up + 1
+        }
+        i = i + 1
+    }
+    println("up=" + str(up) + " down=" + str(down))
+}
+
+// run_sweep audits a port range with one connect each (A88).
+func run_sweep(host, start, count) {
+    if (count < 1) {
+        println("error: bad count")
+        return
+    }
+    if (count > 16) {
+        println("error: count capped at 16")
+        return
+    }
+    let open = 0
+    let p = 0
+    while (p < count) {
+        let port = start + p
+        let c = net_connect(host, port)
+        if (c < 0) {
+            println(str(port) + ": closed")
+            net_close(c)
+        } else {
+            println(str(port) + ": open")
+            net_close(c)
+            open = open + 1
+        }
+        p = p + 1
+    }
+    println("open: " + str(open) + " of " + str(count))
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        adv_usage()
+        return
+    }
+    if (args[1] == "studio-diff") {
+        if (len(args) < 4) {
+            adv_usage()
+            return
+        }
+        run_studio_diff(args[2], args[3])
+        return
+    }
+    if (args[1] == "studio-copy") {
+        if (len(args) < 5) {
+            adv_usage()
+            return
+        }
+        run_studio_copy(args[2], args[3], args[4])
+        return
+    }
+    if (args[1] == "studio-demo") {
+        if (len(args) < 3) {
+            adv_usage()
+            return
+        }
+        run_studio_demo(args[2])
+        return
+    }
+    if (args[1] == "health") {
+        if (len(args) < 4) {
+            adv_usage()
+            return
+        }
+        let ports = []
+        let i = 3
+        while (i < len(args)) {
+            push(ports, int(args[i]))
+            i = i + 1
+        }
+        run_health(args[2], ports, len(ports))
+        return
+    }
+    if (args[1] == "sweep") {
+        if (len(args) < 5) {
+            adv_usage()
+            return
+        }
+        run_sweep(args[2], int(args[3]), int(args[4]))
+        return
+    }
+    if (args[1] == "workbench") {
+        if (len(args) < 4) {
+            adv_usage()
+            return
+        }
+        run_workbench(args[2], args[3])
+        return
+    }
+    adv_usage()
+}

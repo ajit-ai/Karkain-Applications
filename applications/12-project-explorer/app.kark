@@ -1,0 +1,33 @@
+// app.kark — A08 Project Explorer (Phase 005).
+//
+// Usage (built binary): project-explorer <dir>
+// Lists entries with sizes, totals, .kark count, manifest presence.
+// Flat only; no recursion/stat (CAP-009). See README.rst.
+import explorer
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: project-explorer <dir>")
+        return
+    }
+    let r = explorer.explorer_scan(args[1])
+    if (r["ok"] == 0) {
+        println("error: cannot list " + args[1])
+        return
+    }
+    let entries = r["entries"]
+    println("entries: " + str(len(entries)))
+    let i = 0
+    while (i < len(entries)) {
+        println(entries[i][0] + ": " + str(entries[i][1]) + " chars")
+        i = i + 1
+    }
+    println("total_chars: " + str(r["total_chars"]))
+    println("kark_files: " + str(r["kark_files"]))
+    if (r["manifest"] == 1) {
+        println("manifest: present")
+    } else {
+        println("manifest: absent")
+    }
+}

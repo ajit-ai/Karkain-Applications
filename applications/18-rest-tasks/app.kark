@@ -1,0 +1,162 @@
+// app.kark — A18 Task Management REST API (Phase 006).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   rest-tasks server <port> <maxRequests>
+//   rest-tasks client <host> <port> <method> <path> [body]
+// Routes (text/plain bodies; no JSON — CAP-003):
+//   GET    /tasks      list all ("tasks: N" + lines)
+//   POST   /tasks      create from body title (empty -> 400)
+//   GET    /tasks/N    one task (unknown id -> 404)
+//   PUT    /tasks/N    set open/done from body (bad id -> 404, else -> 400)
+//   DELETE /tasks/N    remove (unknown id -> 404)
+//   anything else -> 404. Store is in-memory (persistence is A22).
+// Single-threaded; serves maxRequests then exits.
+import http_codec
+import tasks
+
+func rest_usage() {
+    println("Usage: rest-tasks server <port> <maxRequests>")
+    println("Usage: rest-tasks client <host> <port> <method> <path> [body]")
+}
+
+// rest_dispatch routes one parsed request on the shared store; always
+// answers (even errors are HTTP responses, never dropped connections).
+public func rest_dispatch(conn, store, req) {
+    let status = 404
+    let reason = "Not Found"
+    let body = "error: not found"
+    let segs = split(req["path"], "/")
+    if (len(segs) == 1) {
+        if (segs[0] == "tasks") {
+            if (req["method"] == "GET") {
+                status = 200
+                reason = "OK"
+                body = tasks.tasks_list(store)
+            }
+            if (req["method"] == "POST") {
+                let made = tasks.tasks_create(store, req["body"])
+                if (made["ok"] == 1) {
+                    status = 201
+                    reason = "Created"
+                    body = "created: " + str(made["id"])
+                } else {
+                    status = 400
+                    reason = "Bad Request"
+                    body = "error: " + made["error"]
+                }
+            }
+        }
+    }
+    if (len(segs) == 2) {
+        if (segs[0] == "tasks") {
+            if (tasks.tasks_is_digits(segs[1]) == 1) {
+                let id = int(segs[1])
+                if (req["method"] == "GET") {
+                    let pos = tasks.tasks_index(store, id)
+                    if (pos >= 0) {
+                        status = 200
+                        reason = "OK"
+                        body = tasks.tasks_format(store, pos)
+                    }
+                }
+                if (req["method"] == "PUT") {
+                    let upd = tasks.tasks_set_state(store, id, trim(req["body"]))
+                    if (upd["ok"] == 1) {
+                        status = 200
+                        reason = "OK"
+                        body = "updated: " + str(id)
+                    } else {
+                        if (upd["error"] == "not found") {
+                            status = 404
+                            reason = "Not Found"
+                            body = "error: not found"
+                        } else {
+                            status = 400
+                            reason = "Bad Request"
+                            body = "error: " + upd["error"]
+                        }
+                    }
+                }
+                if (req["method"] == "DELETE") {
+                    if (tasks.tasks_remove(store, id) == 1) {
+                        status = 200
+                        reason = "OK"
+                        body = "deleted: " + str(id)
+                    }
+                }
+            }
+        }
+    }
+    let pkt = http_codec.http_build_response(status, reason, body)
+    net_write(conn, pkt)
+    println("server: " + req["method"] + " " + req["path"] + " -> " + str(status))
+    return 1
+}
+
+func rest_serve(port, maxRequests) {
+    let store = tasks.tasks_new()
+    let srv = net_listen("127.0.0.1", port)
+    if (srv < 0) {
+        println("server: listen failed: " + net_last_error())
+        return
+    }
+    println("server: listening 127.0.0.1:" + str(port))
+    let done = 0
+    while (done < maxRequests) {
+        let conn = net_accept(srv)
+        if (conn < 0) {
+            println("server: accept failed: " + net_last_error())
+            break
+        }
+        let req = http_codec.http_read_request(conn)
+        if (req["ok"] == 0) {
+            println("server: bad request: " + req["error"])
+            net_close(conn)
+            done = done + 1
+            continue
+        }
+        rest_dispatch(conn, store, req)
+        net_close(conn)
+        done = done + 1
+    }
+    net_close(srv)
+}
+
+func rest_client(host, port, method, path, body) {
+    let resp = http_codec.http_request(host, port, method, path, body)
+    if (resp["ok"] == 0) {
+        println("client: request failed: " + resp["error"])
+        return
+    }
+    println("client: status " + str(resp["status"]))
+    println("client: body " + resp["body"])
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        rest_usage()
+        return
+    }
+    if (args[1] == "server") {
+        if (len(args) < 4) {
+            rest_usage()
+            return
+        }
+        rest_serve(int(args[2]), int(args[3]))
+        return
+    }
+    if (args[1] == "client") {
+        if (len(args) < 6) {
+            rest_usage()
+            return
+        }
+        let body = ""
+        if (len(args) > 6) {
+            body = args[6]
+        }
+        rest_client(args[2], int(args[3]), args[4], args[5], body)
+        return
+    }
+    rest_usage()
+}

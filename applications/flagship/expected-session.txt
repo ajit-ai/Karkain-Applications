@@ -1,0 +1,25 @@
+session: start
+1> status
+console: up
+tables: 2
+table: inventory rows=3
+table: services rows=1
+rows: 4
+2> db-query SELECT * FROM inventory
+cols: id|name|qty
+1|pens|100
+2|paper|30
+3|ink|30
+rows: 3
+3> probe 127.0.0.1 49191
+127.0.0.1:49191 DOWN
+4> show note.txt
+1: nightly checklist
+2: verify console.db
+3: probe loopback
+5> db-query SELECT name, qty FROM inventory WHERE qty = 30
+cols: name|qty
+paper|30
+ink|30
+rows: 2
+session: 5 steps ok=5

@@ -1,0 +1,137 @@
+// console.kark — Phase 012 flagship console helpers.
+//
+// Self-contained runbook/session engine: numbered transcript lines,
+// read-only db queries, TCP probes, file views. No cross-module calls.
+// The console seeds its workdir database + note from fixed literals so
+// sessions are deterministic from any fresh workdir.
+
+// con_find returns the first index of sub in text, or -1.
+public func con_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if (m == 0) {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if (substr(text, i, m) == sub) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// con_first returns the leading token of s.
+public func con_first(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        if (substr(t, i, 1) == " ") {
+            break
+        }
+        i = i + 1
+    }
+    return substr(t, 0, i)
+}
+
+// con_rest returns everything after the first token, trimmed.
+public func con_rest(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        if (substr(t, i, 1) == " ") {
+            break
+        }
+        i = i + 1
+    }
+    return trim(substr(t, i, len(t) - i))
+}
+
+// con_seed builds the deterministic console database + note.
+public func con_seed(workdir) {
+    let dbfile = workdir + "/console.db"
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let stmts = []
+    push(stmts, "CREATE TABLE inventory (id, name, qty)")
+    push(stmts, "INSERT INTO inventory VALUES (1, 'pens', 100)")
+    push(stmts, "INSERT INTO inventory VALUES (2, 'paper', 30)")
+    push(stmts, "INSERT INTO inventory VALUES (3, 'ink', 30)")
+    push(stmts, "CREATE TABLE services (name, port)")
+    push(stmts, "INSERT INTO services VALUES ('loopback-probe', 49191)")
+    let i = 0
+    while (i < len(stmts)) {
+        let made = db_exec(db, stmts[i])
+        db = made["db"]
+        i = i + 1
+    }
+    db_save(dbfile, db)
+    writeFile(workdir + "/note.txt", "nightly checklist\nverify console.db\nprobe loopback\n")
+    return dbfile
+}
+
+// con_status_lines returns lab status lines; never takes array args.
+public func con_status_lines(dbfile) {
+    let out = []
+    let got = db_load(dbfile)
+    let names = db_sort(map_keys_of(got["db"]["tables"]))
+    push(out, "console: up")
+    push(out, "tables: " + str(len(names)))
+    let total = 0
+    let i = 0
+    while (i < len(names)) {
+        let t = got["db"]["tables"][names[i]]
+        push(out, "table: " + names[i] + " rows=" + str(len(t["rows"])))
+        total = total + len(t["rows"])
+        i = i + 1
+    }
+    push(out, "rows: " + str(total))
+    return out
+}
+
+// con_query_lines returns SELECT output lines, or ["error: ..."].
+public func con_query_lines(dbfile, sql) {
+    let got = db_load(dbfile)
+    let q = db_exec(got["db"], sql)
+    if (q["res"]["ok"] == 0) {
+        let e = []
+        push(e, "error: " + q["res"]["error"])
+        return e
+    }
+    return q["res"]["lines"]
+}
+
+// con_probe_line returns one TCP health line.
+public func con_probe_line(host, port) {
+    let c = net_connect(host, port)
+    if (c < 0) {
+        return host + ":" + str(port) + " DOWN"
+    }
+    net_close(c)
+    return host + ":" + str(port) + " UP"
+}
+
+// con_show_lines returns numbered file lines, or ["error: ..."].
+public func con_show_lines(path) {
+    let out = []
+    let text = readFile(path)
+    if (len(text) == 0) {
+        push(out, "error: empty or missing: " + path)
+        return out
+    }
+    let parts = split(text, "\n")
+    let n = 0
+    let i = 0
+    while (i < len(parts)) {
+        let line = trim(parts[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        n = n + 1
+        push(out, str(n) + ": " + line)
+    }
+    return out
+}

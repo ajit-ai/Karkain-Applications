@@ -1,0 +1,108 @@
+// app.kark — A16/A17 HTTP service demo (Phase 006).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   http-service server <port> <maxRequests>
+//   http-service client <host> <port> <method> <path> [body]
+// The server binds 127.0.0.1, serves maxRequests connections with three
+// exact-match routes, then exits (single-threaded, no concurrency):
+//   GET /hello  -> 200 hello   (any method on /hello also answers 200)
+//   GET /status -> 200 ok
+//   anything else -> 404 error: not found
+// Plain text/plain bodies; no JSON (CAP-003), no TLS (CAP-007).
+import http_codec
+
+func http_usage() {
+    println("Usage: http-service server <port> <maxRequests>")
+    println("Usage: http-service client <host> <port> <method> <path> [body]")
+}
+
+// http_route answers one request map; returns 1 always (request was
+// answerable at the HTTP level, even 404s).
+public func http_route(conn, req) {
+    let status = 404
+    let reason = "Not Found"
+    let body = "error: not found"
+    if (req["path"] == "/hello") {
+        status = 200
+        reason = "OK"
+        body = "hello"
+    }
+    if (req["path"] == "/status") {
+        if (req["method"] == "GET") {
+            status = 200
+            reason = "OK"
+            body = "ok"
+        }
+    }
+    let pkt = http_codec.http_build_response(status, reason, body)
+    net_write(conn, pkt)
+    println("server: " + req["method"] + " " + req["path"] + " -> " + str(status))
+    return 1
+}
+
+func http_serve(port, maxRequests) {
+    let srv = net_listen("127.0.0.1", port)
+    if (srv < 0) {
+        println("server: listen failed: " + net_last_error())
+        return
+    }
+    println("server: listening 127.0.0.1:" + str(port))
+    let done = 0
+    while (done < maxRequests) {
+        let conn = net_accept(srv)
+        if (conn < 0) {
+            println("server: accept failed: " + net_last_error())
+            break
+        }
+        let req = http_codec.http_read_request(conn)
+        if (req["ok"] == 0) {
+            println("server: bad request: " + req["error"])
+            net_close(conn)
+            done = done + 1
+            continue
+        }
+        http_route(conn, req)
+        net_close(conn)
+        done = done + 1
+    }
+    net_close(srv)
+}
+
+func http_client(host, port, method, path, body) {
+    let resp = http_codec.http_request(host, port, method, path, body)
+    if (resp["ok"] == 0) {
+        println("client: request failed: " + resp["error"])
+        return
+    }
+    println("client: status " + str(resp["status"]))
+    println("client: body " + resp["body"])
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        http_usage()
+        return
+    }
+    if (args[1] == "server") {
+        if (len(args) < 4) {
+            http_usage()
+            return
+        }
+        http_serve(int(args[2]), int(args[3]))
+        return
+    }
+    if (args[1] == "client") {
+        if (len(args) < 6) {
+            http_usage()
+            return
+        }
+        let body = ""
+        if (len(args) > 6) {
+            body = args[6]
+        }
+        http_client(args[2], int(args[3]), args[4], args[5], body)
+        return
+    }
+    http_usage()
+}

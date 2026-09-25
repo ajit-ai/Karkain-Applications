@@ -1,0 +1,10 @@
+// sample1 - greeting helper
+import helpers
+
+func greet(name) {
+    println(name)
+}
+
+func farewell(name) {
+    println(name)
+}

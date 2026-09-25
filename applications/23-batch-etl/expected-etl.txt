@@ -1,0 +1,11 @@
+reject: 6 bad amount
+extracted: 6
+loaded: 4
+rejected: 1
+skipped: 1
+cols: id|customer|amount|status
+1|alice|1200|paid
+2|bob|450|paid
+3|carol|3000|shipped
+5|erin|750|paid
+rows: 4

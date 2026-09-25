@@ -1,0 +1,24 @@
+// app.kark — A10 Trailing-Whitespace Normalizer (Phase 005).
+//
+// Usage (built binary): code-format <src> <dst>
+// Explicitly a narrow subset, not a full formatter (no AST available).
+// See README.rst.
+import format_scan
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        println("Usage: code-format <src> <dst>")
+        return
+    }
+    let r = format_scan.format_normalize(args[1], args[2])
+    if (r["ok"] == 0) {
+        println("error: " + r["error"])
+        return
+    }
+    if (r["changed"] == 0) {
+        println("clean: " + str(r["total"]) + " lines")
+        return
+    }
+    println("changed: " + str(r["changed"]) + " of " + str(r["total"]) + " lines")
+}

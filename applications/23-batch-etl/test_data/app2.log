@@ -1,0 +1,6 @@
+INFO collector start
+ERROR sensor timeout
+WARN retry sensor
+INFO sensor ok
+ERROR disk full
+INFO collector stop

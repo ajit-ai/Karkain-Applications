@@ -1,0 +1,380 @@
+// app.kark — Phase 008 Services: batch + ETL (A36/A38/A39/A40/A41/A42).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   svc etl <csv> <dbfile>        A39: validate/filter CSV -> orders table
+//   svc batch <dbfile> <jobs>     A38: run SQL job list, per-job report
+//   svc logagg <dir>              A41: LEVEL counts over app1/app2.log
+//   svc impexp <dbfile> <t> <csv> A42: table -> CSV -> copy table, verify
+//   svc poll <dir>                A40: bounded poll of snap1..3, new lines
+//   svc-run <conf> <workdir>      A36: config startup steps, logged
+// A37 (scheduler) is blocked: no timer/scheduler primitives (CAP-008).
+// ETL/batch/impexp/svc-run reset their db/log targets first so reruns
+// are byte-identical. Values with commas are unsupported (CSV subset).
+import etl
+import db_sql
+
+func svc_usage() {
+    println("Usage: svc etl <csv> <dbfile>")
+    println("Usage: svc batch <dbfile> <jobsfile>")
+    println("Usage: svc logagg <dir>")
+    println("Usage: svc impexp <dbfile> <table> <csvfile>")
+    println("Usage: svc poll <dir>")
+    println("Usage: svc-run <conffile> <workdir>")
+}
+
+// run_etl validates/filters CSV rows into a fresh orders table (A39).
+// Rules: amount must be a non-negative int; status cancelled is
+// filtered (counts as skipped, not rejected).
+func run_etl(csvpath, dbfile) {
+    let rows = svc_csv(readFile(csvpath))
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let m0 = db_exec(db, "CREATE TABLE orders (id, customer, amount, status)")
+    db = m0["db"]
+    let loaded = 0
+    let rejected = 0
+    let skipped = 0
+    let i = 1
+    while (i < len(rows)) {
+        let r = rows[i]
+        i = i + 1
+        if (len(r) != 4) {
+            rejected = rejected + 1
+            continue
+        }
+        if (db_is_int(r[2]) == 0) {
+            println("reject: " + r[0] + " bad amount")
+            rejected = rejected + 1
+            continue
+        }
+        if (int(r[2]) < 0) {
+            println("reject: " + r[0] + " negative amount")
+            rejected = rejected + 1
+            continue
+        }
+        if (r[3] == "cancelled") {
+            skipped = skipped + 1
+            continue
+        }
+        let ins = db_exec(db, "INSERT INTO orders VALUES (" + r[0] + ", '" + r[1] + "', " + r[2] + ", '" + r[3] + "')")
+        if (ins["res"]["ok"] == 0) {
+            println("reject: " + r[0] + " " + ins["res"]["error"])
+            rejected = rejected + 1
+            continue
+        }
+        db = ins["db"]
+        loaded = loaded + 1
+    }
+    db_save(dbfile, db)
+    println("extracted: " + str(len(rows) - 1))
+    println("loaded: " + str(loaded))
+    println("rejected: " + str(rejected))
+    println("skipped: " + str(skipped))
+    let back = db_load(dbfile)
+    let q = db_exec(back["db"], "SELECT * FROM orders")
+    let lines = q["res"]["lines"]
+    let k = 0
+    while (k < len(lines)) {
+        println(lines[k])
+        k = k + 1
+    }
+}
+
+// run_batch executes a SQL job list with per-job report + summary (A38).
+func run_batch(dbfile, jobsfile) {
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let lines = svc_lines(readFile(jobsfile))
+    let ok = 0
+    let err = 0
+    let n = 0
+    let i = 0
+    while (i < len(lines)) {
+        let line = lines[i]
+        i = i + 1
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        n = n + 1
+        let made = db_exec(db, line)
+        if (made["res"]["ok"] == 1) {
+            ok = ok + 1
+            println("job " + str(n) + ": ok")
+            let rl = made["res"]["lines"]
+            let k = 0
+            while (k < len(rl)) {
+                println("  " + rl[k])
+                k = k + 1
+            }
+            db = made["db"]
+        } else {
+            err = err + 1
+            println("job " + str(n) + ": error: " + made["res"]["error"])
+        }
+    }
+    db_save(dbfile, db)
+    println("jobs: " + str(n) + " ok=" + str(ok) + " err=" + str(err))
+}
+
+// run_logagg counts LEVEL tags over app1.log + app2.log (A41).
+func run_logagg(dir) {
+    let info = 0
+    let warn = 0
+    let error = 0
+    let other = 0
+    let f = 0
+    while (f < 2) {
+        let path = dir + "/app1.log"
+        if (f == 1) {
+            path = dir + "/app2.log"
+        }
+        let lines = svc_lines(readFile(path))
+        let i = 0
+        while (i < len(lines)) {
+            let tag = svc_first(lines[i])
+            i = i + 1
+            if (tag == "INFO") {
+                info = info + 1
+            } else {
+                if (tag == "WARN") {
+                    warn = warn + 1
+                } else {
+                    if (tag == "ERROR") {
+                        error = error + 1
+                    } else {
+                        other = other + 1
+                    }
+                }
+            }
+        }
+        f = f + 1
+    }
+    println("INFO: " + str(info))
+    println("WARN: " + str(warn))
+    println("ERROR: " + str(error))
+    println("OTHER: " + str(other))
+    println("total: " + str(info + warn + error + other))
+}
+
+// pipe_join converts decoded "a|b" rows to CSV "a,b" lines.
+func pipe_join(line) {
+    let out = ""
+    let parts = split(line, "|")
+    let i = 0
+    while (i < len(parts)) {
+        if (i > 0) {
+            out = out + ","
+        }
+        out = out + parts[i]
+        i = i + 1
+    }
+    return out
+}
+
+// run_impexp exports a table to CSV then re-imports to <table>_copy (A42).
+// All values are single-quoted on import; db_encode re-derives int vs
+// string, so plain fixtures round-trip exactly.
+func run_impexp(dbfile, table, csvpath) {
+    let got = db_load(dbfile)
+    let q = db_exec(got["db"], "SELECT * FROM " + table)
+    if (q["res"]["ok"] == 0) {
+        println("error: " + q["res"]["error"])
+        return
+    }
+    let lines = q["res"]["lines"]
+    let head = substr(lines[0], 6, len(lines[0]) - 6)
+    let text = pipe_join(head) + "\n"
+    let i = 1
+    while (i < len(lines) - 1) {
+        text = text + pipe_join(lines[i]) + "\n"
+        i = i + 1
+    }
+    writeFile(csvpath, text)
+    println("exported: " + str(len(lines) - 2) + " rows")
+    let copy = table + "_copy"
+    let db = got["db"]
+    let c0 = db_exec(db, "DROP TABLE " + copy)
+    db = c0["db"]
+    let c1 = db_exec(db, "CREATE TABLE " + copy + " (" + pipe_join(head) + ")")
+    db = c1["db"]
+    let rows = svc_csv(text)
+    let j = 1
+    while (j < len(rows)) {
+        let vals = ""
+        let k = 0
+        while (k < len(rows[j])) {
+            if (k > 0) {
+                vals = vals + ", "
+            }
+            vals = vals + "'" + rows[j][k] + "'"
+            k = k + 1
+        }
+        let ins = db_exec(db, "INSERT INTO " + copy + " VALUES (" + vals + ")")
+        db = ins["db"]
+        j = j + 1
+    }
+    let v1 = db_exec(db, "SELECT * FROM " + table)
+    let v2 = db_exec(db, "SELECT * FROM " + copy)
+    let n1 = v1["res"]["lines"][len(v1["res"]["lines"]) - 1]
+    let n2 = v2["res"]["lines"][len(v2["res"]["lines"]) - 1]
+    db_save(dbfile, db)
+    if (n1 == n2) {
+        println("roundtrip: ok " + n1)
+    } else {
+        println("roundtrip: MISMATCH " + n1 + " vs " + n2)
+    }
+}
+
+// run_poll does a bounded 3-poll read of growing snapshots (A40).
+// No timers/sleep exist: polling is an explicit fixed sequence, and
+// only newly arrived lines are reported per poll.
+func run_poll(dir) {
+    let seen = 0
+    let p = 1
+    while (p <= 3) {
+        let lines = svc_lines(readFile(dir + "/snap" + str(p) + ".txt"))
+        let fresh = len(lines) - seen
+        if (fresh < 0) {
+            fresh = 0
+        }
+        println("poll " + str(p) + ": new=" + str(fresh) + " total=" + str(len(lines)))
+        seen = len(lines)
+        p = p + 1
+    }
+}
+
+// run_svc executes config startup steps in order with a log file (A36).
+// No daemonize/signals exist: this is a foreground startup runner.
+// Resets its db + log so reruns are identical.
+func run_svc(confpath, workdir) {
+    let conf = readFile(confpath)
+    let name = svc_ini_get(conf, "service", "name")
+    if (len(name) == 0) {
+        println("error: no service name")
+        return
+    }
+    let steps = svc_ini_get(conf, "service", "steps")
+    let logf = svc_ini_get(conf, "service", "log")
+    if (len(steps) == 0) {
+        println("error: no steps file")
+        return
+    }
+    if (len(logf) == 0) {
+        println("error: no log file")
+        return
+    }
+    println("service: " + name)
+    let maxs = 50
+    let lim = svc_ini_get(conf, "limits", "max_steps")
+    if (db_is_int(lim) == 1) {
+        maxs = int(lim)
+    }
+    let dbpath = workdir + "/app.db"
+    let logpath = workdir + "/svc.log"
+    let stepspath = workdir + "/" + steps
+    db_save(dbpath, db_blank())
+    writeFile(logpath, "")
+    let got = db_load(dbpath)
+    let db = got["db"]
+    let log = ""
+    let n = 0
+    let lines = svc_lines(readFile(stepspath))
+    let i = 0
+    while (i < len(lines)) {
+        let line = lines[i]
+        i = i + 1
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        n = n + 1
+        if (n > maxs) {
+            log = log + "limit reached\n"
+            println("limit reached")
+            break
+        }
+        let made = db_exec(db, line)
+        if (made["res"]["ok"] == 1) {
+            db = made["db"]
+            let rl = made["res"]["lines"]
+            let first = "ok"
+            if (len(rl) > 0) {
+                first = rl[0]
+            }
+            log = log + "step " + str(n) + ": " + first + "\n"
+            println("step " + str(n) + ": " + first)
+        } else {
+            log = log + "step " + str(n) + ": error: " + made["res"]["error"] + "\n"
+            println("step " + str(n) + ": error: " + made["res"]["error"])
+        }
+    }
+    db_save(dbpath, db)
+    writeFile(logpath, log)
+    println("steps: " + str(n))
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        svc_usage()
+        return
+    }
+    if (args[1] == "svc-run") {
+        if (len(args) < 4) {
+            svc_usage()
+            return
+        }
+        run_svc(args[2], args[3])
+        return
+    }
+    if (args[1] != "svc") {
+        svc_usage()
+        return
+    }
+    if (len(args) < 3) {
+        svc_usage()
+        return
+    }
+    if (args[2] == "etl") {
+        if (len(args) < 5) {
+            svc_usage()
+            return
+        }
+        run_etl(args[3], args[4])
+        return
+    }
+    if (args[2] == "batch") {
+        if (len(args) < 5) {
+            svc_usage()
+            return
+        }
+        run_batch(args[3], args[4])
+        return
+    }
+    if (args[2] == "logagg") {
+        if (len(args) < 4) {
+            svc_usage()
+            return
+        }
+        run_logagg(args[3])
+        return
+    }
+    if (args[2] == "impexp") {
+        if (len(args) < 6) {
+            svc_usage()
+            return
+        }
+        run_impexp(args[3], args[4], args[5])
+        return
+    }
+    if (args[2] == "poll") {
+        if (len(args) < 4) {
+            svc_usage()
+            return
+        }
+        run_poll(args[3])
+        return
+    }
+    svc_usage()
+}

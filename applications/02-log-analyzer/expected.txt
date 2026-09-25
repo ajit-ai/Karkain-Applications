@@ -1,0 +1,7 @@
+records: 10
+info: 5
+warn: 2
+error: 2
+unknown: 1
+error_pct: 20
+longest: 20

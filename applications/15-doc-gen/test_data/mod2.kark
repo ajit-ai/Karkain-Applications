@@ -1,0 +1,9 @@
+// inventory counters
+
+public func restock(sku, qty) {
+    return qty
+}
+
+func helper() {
+    return 0
+}

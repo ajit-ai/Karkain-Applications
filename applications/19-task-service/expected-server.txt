@@ -1,0 +1,7 @@
+server: listening 127.0.0.1:49073
+server: POST /tasks -> 201
+server: GET /tasks -> 200
+server: PUT /tasks/1 -> 200
+server: GET /tasks/1 -> 200
+server: POST /tasks -> 201
+server: DELETE /tasks/9 -> 404

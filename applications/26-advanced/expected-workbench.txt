@@ -1,0 +1,5 @@
+reject: 6 bad qty
+rows: 6
+loaded: 5
+rejected: 1
+revenue_cents: 4850

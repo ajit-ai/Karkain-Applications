@@ -1,0 +1,8 @@
+[server]
+server: listening 127.0.0.1:49061
+server: received ping
+server: echoed ping
+[client]
+client: connected 127.0.0.1:49061
+client: sent ping
+client: received ping

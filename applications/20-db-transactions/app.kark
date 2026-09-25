@@ -1,0 +1,184 @@
+// app.kark — A23 Transactional Application (Phase 006).
+//
+// Domain: accounts (name, balance). Demonstrates an APPLICATION-LEVEL
+// transactional pattern: snapshot the loaded db, apply all steps to the
+// working copy only, db_save exactly once when every step succeeds.
+// On any step failure the working copy is discarded and the snapshot is
+// re-saved, so the persisted state is provably unchanged.
+//
+// There are NO native transactions: no BEGIN/COMMIT/ROLLBACK in the
+// engine or the Karkain builtins (readFile/writeFile only). Nothing here
+// is ACID; single-process, no concurrency, no crash-atomicity.
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   txn demo <dbfile>                        reset + success + failure + reload (pinned)
+//   txn show <dbfile>                        print all accounts
+//   txn transfer <dbfile> <from> <to> <amt>  one guarded transfer, save-on-success only
+import db_sql
+
+func txn_usage() {
+    println("Usage: txn demo <dbfile>")
+    println("Usage: txn show <dbfile>")
+    println("Usage: txn transfer <dbfile> <from> <to> <amount>")
+}
+
+// txn_seed creates a fresh accounts table with fixed balances.
+func txn_seed(dbfile) {
+    println("== seed ==")
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let r1 = db_exec(got["db"], "CREATE TABLE accounts (name, balance)")
+    txn_print(r1["res"])
+    let r2 = db_exec(r1["db"], "INSERT INTO accounts VALUES ('alice', 100)")
+    txn_print(r2["res"])
+    let r3 = db_exec(r2["db"], "INSERT INTO accounts VALUES ('bob', 50)")
+    txn_print(r3["res"])
+    db_save(dbfile, r3["db"])
+    println("seeded")
+}
+
+// txn_print prints one engine result.
+func txn_print(res) {
+    if (res["ok"] == 0) {
+        println("error: " + res["error"])
+        return
+    }
+    let lines = res["lines"]
+    let i = 0
+    while (i < len(lines)) {
+        println(lines[i])
+        i = i + 1
+    }
+}
+
+// txn_balance returns the balance of name, or -1 when absent.
+// Reads through SELECT so the lookup itself is engine-verified.
+func txn_balance(db, name) {
+    let q = db_exec(db, "SELECT name, balance FROM accounts WHERE name = '" + name + "'")
+    let lines = q["res"]["lines"]
+    let i = 0
+    while (i < len(lines)) {
+        let parts = split(lines[i], "|")
+        if (len(parts) == 2) {
+            if (trim(parts[0]) == name) {
+                return int(trim(parts[1]))
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// txn_show prints every account row.
+func txn_show(dbfile) {
+    let got = db_load(dbfile)
+    txn_print(db_exec(got["db"], "SELECT * FROM accounts")["res"])
+}
+
+// txn_transfer applies one guarded transfer. Returns 1 on commit, 0 on abort.
+// Steps: load snapshot -> validate -> debit working copy -> credit working
+// copy -> check affected rows -> save once. Any failure discards the working
+// copy and re-saves the snapshot (explicit rollback), leaving the file as found.
+func txn_transfer(dbfile, from, to, amount) {
+    if (db_is_int(amount) == 0) {
+        println("error: bad amount: " + amount)
+        return 0
+    }
+    let amt = int(amount)
+    if (amt <= 0) {
+        println("error: bad amount: " + amount)
+        return 0
+    }
+    let snap = db_load(dbfile)
+    let db = snap["db"]
+    let bf = txn_balance(db, from)
+    if (bf < 0) {
+        println("error: no such account: " + from)
+        return 0
+    }
+    let bt = txn_balance(db, to)
+    if (bt < 0) {
+        // Destination read fails: do NOT abort here. Stage step 1, then let
+        // step 2 match zero rows so the mid-operation rollback path below
+        // fires for real (0 is a dummy value, never applied to any row).
+        bt = 0
+    }
+    if (bf < amt) {
+        println("error: insufficient funds: " + from + " has " + str(bf))
+        return 0
+    }
+    // Step 1: debit the working copy.
+    let d = db_exec(db, "UPDATE accounts SET balance = " + str(bf - amt) + " WHERE name = '" + from + "'")
+    let work = d["db"]
+    // Step 2: credit the working copy. Zero affected rows means the
+    // destination vanished mid-operation -> abort and roll back.
+    let c = db_exec(work, "UPDATE accounts SET balance = " + str(bt + amt) + " WHERE name = '" + to + "'")
+    work = c["db"]
+    let clines = c["res"]["lines"]
+    if (len(clines) == 0) {
+        db_save(dbfile, db)
+        println("error: step 2 failed, rolled back")
+        return 0
+    }
+    if (clines[0] != "ok: 1") {
+        db_save(dbfile, db)
+        if (txn_balance(db, to) < 0) {
+            println("error: no such account: " + to + ", rolled back")
+        } else {
+            println("error: step 2 failed, rolled back")
+        }
+        return 0
+    }
+    // Commit: single save of the fully-applied working copy.
+    db_save(dbfile, work)
+    println("committed: " + from + " -> " + to + " " + str(amt))
+    return 1
+}
+
+// txn_demo runs the three pinned cases on a fresh db.
+func txn_demo(dbfile) {
+    txn_seed(dbfile)
+    println("== initial ==")
+    txn_show(dbfile)
+    println("== transfer-ok ==")
+    txn_transfer(dbfile, "alice", "bob", "30")
+    println("== after-ok ==")
+    txn_show(dbfile)
+    println("== transfer-fail ==")
+    txn_transfer(dbfile, "alice", "nobody", "10")
+    println("== after-fail ==")
+    txn_show(dbfile)
+    println("== transfer-overdraft ==")
+    txn_transfer(dbfile, "bob", "alice", "999")
+    println("== after-overdraft ==")
+    txn_show(dbfile)
+    println("== reload ==")
+    let back = db_load(dbfile)
+    txn_print(db_exec(back["db"], "SELECT * FROM accounts")["res"])
+    println("done")
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        txn_usage()
+        return
+    }
+    if (args[1] == "demo") {
+        txn_demo(args[2])
+        return
+    }
+    if (args[1] == "show") {
+        txn_show(args[2])
+        return
+    }
+    if (args[1] == "transfer") {
+        if (len(args) < 6) {
+            txn_usage()
+            return
+        }
+        txn_transfer(args[2], args[3], args[4], args[5])
+        return
+    }
+    txn_usage()
+}

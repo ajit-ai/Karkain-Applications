@@ -1,0 +1,33 @@
+// app.kark — A04 Log Analyzer (Phase 003).
+//
+// Orchestration only: argument handling, usage/error messages, calls into
+// log_parse / log_agg, deterministic output.
+//
+// Verified limitation (CAP-008): `karkain run` does not forward program
+// arguments, so `getArgs()` only carries the log path when the app is built
+// (`karkain build -o log-analyzer`) and the binary is executed directly.
+// With no filename available the app prints usage. See README.rst.
+import log_parse
+import log_agg
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: log-analyzer <log-file>")
+        return
+    }
+    let path = args[1]
+    let parsed = log_parse.log_parse_file(path)
+    if (parsed["ok"] == 0) {
+        println("error: cannot read " + path)
+        return
+    }
+    let st = log_agg.log_agg_stats(parsed["records"])
+    println("records: " + str(st["total"]))
+    println("info: " + str(st["info"]))
+    println("warn: " + str(st["warn"]))
+    println("error: " + str(st["error"]))
+    println("unknown: " + str(st["unknown"]))
+    println("error_pct: " + str(st["error_pct"]))
+    println("longest: " + str(st["longest"]))
+}
