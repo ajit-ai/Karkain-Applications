@@ -1,0 +1,13 @@
+files: 3
+lines: 23
+nonempty: 19
+blank: 4
+comments: 2
+chars: 261
+func: 3
+import: 1
+struct: 1
+let: 1
+ext:
+kark: 2
+txt: 1

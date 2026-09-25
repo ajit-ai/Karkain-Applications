@@ -1,0 +1,50 @@
+// log_agg.kark — aggregation for A04 (Phase 003).
+//
+// Uses only verified Karkain 1.1.0 builtins (len/push/hasKey/map_keys_of).
+
+// log_agg_stats returns { total, info, warn, error, unknown, error_pct,
+// longest } over records. error_pct uses integer arithmetic
+// (error * 100 / total, 0 when total is 0). longest is the maximum message
+// length over valid (non-UNKNOWN) records.
+public func log_agg_stats(records) {
+    let st = {}
+    st["total"] = 0
+    st["info"] = 0
+    st["warn"] = 0
+    st["error"] = 0
+    st["unknown"] = 0
+    st["error_pct"] = 0
+    st["longest"] = 0
+    let counts = {}
+    counts["INFO"] = 0
+    counts["WARN"] = 0
+    counts["ERROR"] = 0
+    let total = 0
+    let unknown = 0
+    let longest = 0
+    let i = 0
+    while (i < len(records)) {
+        let level = records[i][1]
+        total = total + 1
+        if (level == "UNKNOWN") {
+            unknown = unknown + 1
+        } else {
+            counts[level] = counts[level] + 1
+            let mlen = len(records[i][2])
+            if (mlen > longest) {
+                longest = mlen
+            }
+        }
+        i = i + 1
+    }
+    st["total"] = total
+    st["info"] = counts["INFO"]
+    st["warn"] = counts["WARN"]
+    st["error"] = counts["ERROR"]
+    st["unknown"] = unknown
+    st["longest"] = longest
+    if (total > 0) {
+        st["error_pct"] = counts["ERROR"] * 100 / total
+    }
+    return st
+}

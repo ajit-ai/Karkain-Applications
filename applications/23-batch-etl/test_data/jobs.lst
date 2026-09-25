@@ -1,0 +1,9 @@
+# batch jobs: self-contained SQL script (A38)
+CREATE TABLE jobs (id, task, done)
+INSERT INTO jobs VALUES (1, 'sweep', 0)
+INSERT INTO jobs VALUES (2, 'mop', 0)
+INSERT INTO jobs VALUES (3, 'dust', 0)
+UPDATE jobs SET done = 1 WHERE id = 2
+SELECT * FROM jobs
+DELETE FROM jobs WHERE done = 1
+SELECT id, task FROM jobs

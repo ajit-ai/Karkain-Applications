@@ -1,0 +1,39 @@
+// app.kark — A13/A14 TCP experiment dispatcher (Phase 004).
+//
+// Modes (arguments arrive via real OS argv, so use a built binary;
+// `karkain run` forwards no program arguments — CAP-008):
+//   tcp-echo server <port>
+//   tcp-echo client <host> <port> <message>
+// The server binds localhost only (127.0.0.1); the port is configurable so
+// the test port stays documented in one place (README.rst).
+import tcp_client
+import tcp_server
+
+func tcp_usage() {
+    println("Usage: tcp-echo server <port>")
+    println("Usage: tcp-echo client <host> <port> <message>")
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        tcp_usage()
+        return
+    }
+    let mode = args[1]
+    if (mode == "server") {
+        let port = int(args[2])
+        tcp_server.tcp_server_run("127.0.0.1", port)
+        return
+    }
+    if (mode == "client") {
+        if (len(args) < 5) {
+            tcp_usage()
+            return
+        }
+        let port = int(args[3])
+        tcp_client.tcp_client_run(args[2], port, args[4])
+        return
+    }
+    tcp_usage()
+}

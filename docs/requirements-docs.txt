@@ -1,0 +1,2 @@
+# Documentation build dependencies (pip install -r docs/requirements-docs.txt)
+Sphinx==7.4.7

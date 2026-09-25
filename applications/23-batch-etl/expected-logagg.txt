@@ -1,0 +1,5 @@
+INFO: 8
+WARN: 2
+ERROR: 3
+OTHER: 0
+total: 13

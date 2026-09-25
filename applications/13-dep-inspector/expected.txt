@@ -1,0 +1,6 @@
+name: inventory
+version: 0.2.0
+dependencies: 3
+stdlib = ^0.14.0
+testkit (dev) = 0.1.0
+utils = 1.0.0

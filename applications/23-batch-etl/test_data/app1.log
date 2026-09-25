@@ -1,0 +1,7 @@
+INFO service start
+INFO job sweep begin
+WARN low disk
+INFO job sweep end
+ERROR job mop failed
+INFO retry mop
+INFO job mop end

@@ -1,0 +1,171 @@
+// app.kark — A20 Database CLI + A21 CRUD Application (Phase 006).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   db-crud demo <dbfile>              reset + deterministic CRUD demo        (A21)
+//   db-crud exec <dbfile> <sql...>     execute one SQL statement              (A20)
+//   db-crud script <dbfile> <sqlfile>  execute SQL lines from file            (A20)
+//   db-crud tables <dbfile>            list tables                            (A20)
+//   db-crud schema <dbfile> <table>    show schema of one table               (A20)
+// Demo resets the db file first so reruns are byte-identical (A21 pins).
+// Exec/script mutate then autosave; output is the engine's result lines.
+// Values follow db_sql.kark rules: ints, 'quoted' strings, barewords;
+// no pipes/newlines in values; WHERE is single col = value equality.
+import db_sql
+
+func db_usage() {
+    println("Usage: db-crud demo <dbfile>")
+    println("Usage: db-crud exec <dbfile> <sql...>")
+    println("Usage: db-crud script <dbfile> <sqlfile>")
+    println("Usage: db-crud tables <dbfile>")
+    println("Usage: db-crud schema <dbfile> <table>")
+}
+
+// db_print prints one engine result: error line or each result line.
+func db_print(res) {
+    if (res["ok"] == 0) {
+        println("error: " + res["error"])
+        return res
+    }
+    let lines = res["lines"]
+    let i = 0
+    while (i < len(lines)) {
+        println(lines[i])
+        i = i + 1
+    }
+    return res
+}
+
+// db_run executes one SQL against db, returns the fresh { db, res }.
+func db_run(db, sql) {
+    let made = db_exec(db, sql)
+    db_print(made["res"])
+    return made
+}
+
+// demo resets the db then runs the full deterministic CRUD lifecycle.
+// Section headers make the pinned output self-describing.
+func db_demo(dbfile) {
+    println("== reset ==")
+    let start = db_blank()
+    db_save(dbfile, start)
+    println("ok")
+    println("== create ==")
+    let r1 = db_run(start, "CREATE TABLE users (id, name, email)")
+    println("== insert ==")
+    let r2 = db_run(r1["db"], "INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+    let r3 = db_run(r2["db"], "INSERT INTO users VALUES (2, 'Bob', 'bob@example.com')")
+    println("== select-all ==")
+    let r4 = db_run(r3["db"], "SELECT * FROM users")
+    println("== select-where ==")
+    let r5 = db_run(r4["db"], "SELECT id, name FROM users WHERE name = 'Alice'")
+    println("== update ==")
+    let r6 = db_run(r5["db"], "UPDATE users SET email = 'alice@new.example.com' WHERE name = 'Alice'")
+    println("== select-updated ==")
+    let r7 = db_run(r6["db"], "SELECT id, name, email FROM users WHERE name = 'Alice'")
+    println("== delete ==")
+    let r8 = db_run(r7["db"], "DELETE FROM users WHERE name = 'Bob'")
+    println("== select-final ==")
+    let r9 = db_run(r8["db"], "SELECT * FROM users")
+    println("== tables ==")
+    let r10 = db_run(r9["db"], "TABLES")
+    println("== schema ==")
+    let r11 = db_run(r10["db"], "SCHEMA users")
+    println("== persist ==")
+    db_save(dbfile, r11["db"])
+    println("saved")
+    println("== reload ==")
+    let back = db_load(dbfile)
+    let r12 = db_run(back["db"], "SELECT * FROM users")
+    println("== drop ==")
+    let r13 = db_run(r12["db"], "DROP TABLE users")
+    println("== tables-empty ==")
+    let r14 = db_run(r13["db"], "TABLES")
+    db_save(dbfile, r14["db"])
+    println("done")
+}
+
+// db_join_args joins args[from..] with single spaces.
+func db_join_args(args, from) {
+    let out = ""
+    let i = from
+    while (i < len(args)) {
+        if (i > from) {
+            out = out + " "
+        }
+        out = out + args[i]
+        i = i + 1
+    }
+    return out
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        db_usage()
+        return
+    }
+    if (args[1] == "demo") {
+        db_demo(args[2])
+        return
+    }
+    if (args[1] == "tables") {
+        let got = db_load(args[2])
+        db_print(db_exec(got["db"], "TABLES")["res"])
+        return
+    }
+    if (args[1] == "schema") {
+        if (len(args) < 4) {
+            db_usage()
+            return
+        }
+        let got2 = db_load(args[2])
+        db_print(db_exec(got2["db"], "SCHEMA " + args[3])["res"])
+        return
+    }
+    if (args[1] == "exec") {
+        if (len(args) < 4) {
+            db_usage()
+            return
+        }
+        let got3 = db_load(args[2])
+        let made = db_exec(got3["db"], db_join_args(args, 3))
+        db_print(made["res"])
+        if (made["res"]["ok"] == 1) {
+            db_save(args[2], made["db"])
+        }
+        return
+    }
+    if (args[1] == "script") {
+        if (len(args) < 4) {
+            db_usage()
+            return
+        }
+        // Reset first so reruns are identical (documented demo-CLI rule).
+        db_save(args[2], db_blank())
+        let got4 = db_load(args[2])
+        let db = got4["db"]
+        let lines = split(readFile(args[3]), "\n")
+        let i = 0
+        while (i < len(lines)) {
+            let line = trim(lines[i])
+            i = i + 1
+            if (len(line) == 0) {
+                continue
+            }
+            if (substr(line, 0, 1) == "#") {
+                continue
+            }
+            let made2 = db_exec(db, line)
+            db_print(made2["res"])
+            if (made2["res"]["ok"] == 0) {
+                println("script: stopped")
+                return
+            }
+            db = made2["db"]
+        }
+        db_save(args[2], db)
+        println("script: ok")
+        return
+    }
+    db_usage()
+}

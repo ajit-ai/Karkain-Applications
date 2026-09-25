@@ -1,0 +1,7 @@
+dir: test_data
+entries: 3
+kark_files: 1
+manifest: present
+entrypoint: app.kark
+suggest: karkain check app.kark
+suggest: karkain build app.kark -o app.exe

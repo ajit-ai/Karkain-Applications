@@ -1,0 +1,339 @@
+// app.kark — A24 Database Administration Utility (Phase 006).
+//
+// Strictly READ-ONLY: inspects real database files, never mutates them
+// (no db_save on the inspected db; dump-to-stdout is the export story).
+// Conventional admin features (VACUUM/INDEX/BACKUP-API/USERS/WAL/LOCKS/
+// INFORMATION_SCHEMA) do not exist in this engine and are NOT claimed.
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   admin demo <dbfile>              reset + seed + all views (pinned)
+//   admin inspect <dbfile>           file/table/row summary
+//   admin tables <dbfile>            tables + row counts
+//   admin schema <dbfile> <table>    columns + row count
+//   admin dump <dbfile>              canonical re-emission (sorted)
+//   admin validate <dbfile>          format checks over text file text
+//   admin stats <dbfile>             counts + int/string cell census
+import db_sql
+
+func admin_usage() {
+    println("Usage: admin demo <dbfile>")
+    println("Usage: admin inspect <dbfile>")
+    println("Usage: admin tables <dbfile>")
+    println("Usage: admin schema <dbfile> <table>")
+    println("Usage: admin dump <dbfile>")
+    println("Usage: admin validate <dbfile>")
+    println("Usage: admin stats <dbfile>")
+}
+
+// admin_seed_db resets dbfile then executes a seed script through the
+// real engine. Returns the loaded db.
+func admin_seed_db(dbfile, seedfile) {
+    db_save(dbfile, db_blank())
+    let got = db_load(dbfile)
+    let db = got["db"]
+    let lines = split(readFile(seedfile), "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        let made = db_exec(db, line)
+        if (made["res"]["ok"] == 0) {
+            println("seed error: " + made["res"]["error"])
+            return db
+        }
+        db = made["db"]
+    }
+    db_save(dbfile, db)
+    let back = db_load(dbfile)
+    return back["db"]
+}
+
+// admin_table_names returns sorted table names of a loaded db.
+func admin_table_names(db) {
+    return db_sort(map_keys_of(db["tables"]))
+}
+
+// admin_inspect prints file/table/row summary. Read-only.
+func admin_inspect(dbfile) {
+    let text = readFile(dbfile)
+    if (len(text) == 0) {
+        println("exists: no")
+        println("tables: 0")
+        println("rows: 0")
+        return
+    }
+    println("exists: yes")
+    let first = trim(split(text, "\n")[0])
+    if (first == "#karkain-db-v1") {
+        println("format: karkain-db-v1")
+    } else {
+        println("format: unknown")
+    }
+    let got = db_load(dbfile)
+    let names = admin_table_names(got["db"])
+    println("tables: " + str(len(names)))
+    let total = 0
+    let i = 0
+    while (i < len(names)) {
+        let t = got["db"]["tables"][names[i]]
+        println("table: " + names[i] + " cols=" + str(len(t["cols"])) + " rows=" + str(len(t["rows"])))
+        total = total + len(t["rows"])
+        i = i + 1
+    }
+    println("rows: " + str(total))
+}
+
+// admin_tables lists tables with row counts via the engine TABLES plus counts.
+func admin_tables(dbfile) {
+    let got = db_load(dbfile)
+    let names = admin_table_names(got["db"])
+    let i = 0
+    while (i < len(names)) {
+        let t = got["db"]["tables"][names[i]]
+        println(names[i] + ": " + str(len(t["rows"])) + " rows")
+        i = i + 1
+    }
+    println("tables: " + str(len(names)))
+}
+
+// admin_schema shows columns + row count of one table.
+func admin_schema(dbfile, table) {
+    let got = db_load(dbfile)
+    let r = db_exec(got["db"], "SCHEMA " + table)
+    if (r["res"]["ok"] == 0) {
+        println("error: " + r["res"]["error"])
+        return
+    }
+    let lines = r["res"]["lines"]
+    let i = 0
+    while (i < len(lines)) {
+        println(lines[i])
+        i = i + 1
+    }
+}
+
+// admin_dump re-emits the canonical stored representation (sorted).
+// Output equals the bytes db_save writes, proving the dump is real data.
+func admin_dump(dbfile) {
+    let got = db_load(dbfile)
+    println("#karkain-db-v1")
+    let names = admin_table_names(got["db"])
+    let i = 0
+    while (i < len(names)) {
+        let t = got["db"]["tables"][names[i]]
+        let head = "T|" + names[i] + "|"
+        let c = 0
+        while (c < len(t["cols"])) {
+            if (c > 0) {
+                head = head + ","
+            }
+            head = head + t["cols"][c]
+            c = c + 1
+        }
+        println(head)
+        let j = 0
+        while (j < len(t["rows"])) {
+            let line = "R|" + names[i]
+            let k = 0
+            while (k < len(t["rows"][j])) {
+                line = line + "|" + t["rows"][j][k]
+                k = k + 1
+            }
+            println(line)
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+// admin_validate checks text file text: header, T/R structure, known-table
+// references, row width vs column width, i:/s: cell typing. Reports every
+// defect; prints "valid" only when zero defects exist.
+func admin_validate(dbfile) {
+    let text = readFile(dbfile)
+    if (len(text) == 0) {
+        println("error: empty or missing file")
+        return
+    }
+    let defects = 0
+    let lines = split(text, "\n")
+    let first = trim(lines[0])
+    if (first != "#karkain-db-v1") {
+        println("defect: bad header: " + first)
+        defects = defects + 1
+    }
+    let widths = {}
+    let i = 1
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        let fields = split(line, "|")
+        let kind = trim(fields[0])
+        if (kind == "T") {
+            if (len(fields) < 3) {
+                println("defect: short T line: " + line)
+                defects = defects + 1
+                continue
+            }
+            let cols = split(trim(fields[2]), ",")
+            widths[trim(fields[1])] = len(cols)
+            continue
+        }
+        if (kind == "R") {
+            if (len(fields) < 2) {
+                println("defect: short R line: " + line)
+                defects = defects + 1
+                continue
+            }
+            let tname = trim(fields[1])
+            if (hasKey(widths, tname) == 0) {
+                println("defect: R for unknown table: " + tname)
+                defects = defects + 1
+                continue
+            }
+            if (len(fields) - 2 != widths[tname]) {
+                println("defect: width mismatch in: " + line)
+                defects = defects + 1
+                continue
+            }
+            let k = 2
+            let badcell = 0
+            while (k < len(fields)) {
+                let cell = trim(fields[k])
+                if (len(cell) < 2) {
+                    badcell = 1
+                } else {
+                    let tag = substr(cell, 0, 2)
+                    if (tag != "i:") {
+                        if (tag != "s:") {
+                            badcell = 1
+                        }
+                    }
+                }
+                k = k + 1
+            }
+            if (badcell == 1) {
+                println("defect: untyped cell in: " + line)
+                defects = defects + 1
+            }
+            continue
+        }
+        println("defect: unknown line kind: " + line)
+        defects = defects + 1
+    }
+    if (defects == 0) {
+        println("valid")
+    } else {
+        println("defects: " + str(defects))
+    }
+}
+
+// admin_stats derives counts from actual stored data: tables, per-table
+// cols/rows, total rows, int vs string cell census via text prefixes.
+func admin_stats(dbfile) {
+    let got = db_load(dbfile)
+    let names = admin_table_names(got["db"])
+    println("tables: " + str(len(names)))
+    let total_rows = 0
+    let int_cells = 0
+    let str_cells = 0
+    let i = 0
+    while (i < len(names)) {
+        let t = got["db"]["tables"][names[i]]
+        println(names[i] + ": cols=" + str(len(t["cols"])) + " rows=" + str(len(t["rows"])))
+        total_rows = total_rows + len(t["rows"])
+        let j = 0
+        while (j < len(t["rows"])) {
+            let k = 0
+            while (k < len(t["rows"][j])) {
+                if (substr(t["rows"][j][k], 0, 2) == "i:") {
+                    int_cells = int_cells + 1
+                } else {
+                    str_cells = str_cells + 1
+                }
+                k = k + 1
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    println("total-rows: " + str(total_rows))
+    println("int-cells: " + str(int_cells))
+    println("string-cells: " + str(str_cells))
+}
+
+// admin_demo resets the db, seeds it through the real engine, then runs
+// every view. Single deterministic pin for the harness.
+func admin_demo(dbfile, seedfile) {
+    println("== seed ==")
+    admin_seed_db(dbfile, seedfile)
+    println("seeded")
+    println("== inspect ==")
+    admin_inspect(dbfile)
+    println("== tables ==")
+    admin_tables(dbfile)
+    println("== schema-products ==")
+    admin_schema(dbfile, "products")
+    println("== schema-suppliers ==")
+    admin_schema(dbfile, "suppliers")
+    println("== validate ==")
+    admin_validate(dbfile)
+    println("== stats ==")
+    admin_stats(dbfile)
+    println("== dump ==")
+    admin_dump(dbfile)
+    println("done")
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        admin_usage()
+        return
+    }
+    if (args[1] == "demo") {
+        admin_demo(args[2], args[3])
+        return
+    }
+    if (args[1] == "inspect") {
+        admin_inspect(args[2])
+        return
+    }
+    if (args[1] == "tables") {
+        admin_tables(args[2])
+        return
+    }
+    if (args[1] == "schema") {
+        if (len(args) < 4) {
+            admin_usage()
+            return
+        }
+        admin_schema(args[2], args[3])
+        return
+    }
+    if (args[1] == "dump") {
+        admin_dump(args[2])
+        return
+    }
+    if (args[1] == "validate") {
+        admin_validate(args[2])
+        return
+    }
+    if (args[1] == "stats") {
+        admin_stats(args[2])
+        return
+    }
+    admin_usage()
+}

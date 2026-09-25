@@ -1,0 +1,6 @@
+expected-1-create.txt	client	127.0.0.1	49073	POST	/tasks	Write docs
+expected-2-list.txt	client	127.0.0.1	49073	GET	/tasks
+expected-3-update.txt	client	127.0.0.1	49073	PUT	/tasks/1	done
+expected-4-get.txt	client	127.0.0.1	49073	GET	/tasks/1
+expected-5-create2.txt	client	127.0.0.1	49073	POST	/tasks	Second
+expected-6-del-missing.txt	client	127.0.0.1	49073	DELETE	/tasks/9

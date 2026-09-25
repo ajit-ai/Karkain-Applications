@@ -1,0 +1,76 @@
+// app.kark — A07 Source Analyzer (Phase 003).
+//
+// Takes explicit source files as command-line arguments (no recursive
+// directory traversal exists in Karkain 1.1.0: CAP-009). Reports aggregate
+// textual metrics plus per-extension counts, both deterministic.
+//
+// Verified limitation (CAP-008): `karkain run` does not forward program
+// arguments, so file arguments only arrive via a built binary
+// (`karkain build -o source-analyzer`). With no filenames the app prints
+// usage. See README.rst.
+import source_scan
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: source-analyzer <file> [file ...]")
+        return
+    }
+    let files = 0
+    let lines = 0
+    let nonempty = 0
+    let blank = 0
+    let comments = 0
+    let chars = 0
+    let nfunc = 0
+    let nimport = 0
+    let nstruct = 0
+    let nlet = 0
+    let exts = {}
+    let i = 1
+    while (i < len(args)) {
+        let st = source_scan.source_scan_file(args[i])
+        if (st["ok"] == 0) {
+            println("error: cannot read " + args[i])
+            i = i + 1
+            continue
+        }
+        files = files + 1
+        lines = lines + st["lines"]
+        nonempty = nonempty + st["nonempty"]
+        blank = blank + st["blank"]
+        comments = comments + st["comments"]
+        chars = chars + st["chars"]
+        nfunc = nfunc + st["func"]
+        nimport = nimport + st["import"]
+        nstruct = nstruct + st["struct"]
+        nlet = nlet + st["let"]
+        let ext = source_scan.source_scan_ext(args[i])
+        if (len(ext) == 0) {
+            ext = "(none)"
+        }
+        if (hasKey(exts, ext) == 1) {
+            exts[ext] = exts[ext] + 1
+        } else {
+            exts[ext] = 1
+        }
+        i = i + 1
+    }
+    println("files: " + str(files))
+    println("lines: " + str(lines))
+    println("nonempty: " + str(nonempty))
+    println("blank: " + str(blank))
+    println("comments: " + str(comments))
+    println("chars: " + str(chars))
+    println("func: " + str(nfunc))
+    println("import: " + str(nimport))
+    println("struct: " + str(nstruct))
+    println("let: " + str(nlet))
+    println("ext:")
+    let keys = source_scan.source_scan_sort(map_keys_of(exts))
+    let k = 0
+    while (k < len(keys)) {
+        println(keys[k] + ": " + str(exts[keys[k]]))
+        k = k + 1
+    }
+}

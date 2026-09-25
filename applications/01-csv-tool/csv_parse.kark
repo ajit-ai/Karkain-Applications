@@ -1,0 +1,61 @@
+// csv_parse.kark — CSV parsing for A05 (Phase 002).
+//
+// Supported dialect (deliberately simple, NOT RFC 4180):
+//   comma-separated, one record per line, no quoted fields,
+//   no embedded commas, no multiline fields, integer value field,
+//   optional surrounding whitespace tolerated, first non-empty
+//   line is the header and is ignored, empty lines skipped,
+//   rows with fewer than two fields or an empty field are skipped.
+//
+// Uses only verified Karkain 1.1.0 builtins (readFile/split/trim/int/len/push)
+// so the module runs from any directory without std.* resolution.
+
+// csv_parse_file reads path and returns a map:
+//   { ok, error, rows }
+// rows is an array of [category, value] pairs.
+public func csv_parse_file(path) {
+    let result = {}
+    result["ok"] = 0
+    result["error"] = ""
+    result["rows"] = []
+    let content = readFile(path)
+    if (len(content) == 0) {
+        result["error"] = "cannot read " + path
+        return result
+    }
+    let rows = []
+    let lines = split(content, "\n")
+    let first = true
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (first) {
+            first = false
+            continue
+        }
+        let fields = split(line, ",")
+        if (len(fields) < 2) {
+            continue
+        }
+        let cat = trim(fields[0])
+        let valstr = trim(fields[1])
+        if (len(cat) == 0) {
+            continue
+        }
+        if (len(valstr) == 0) {
+            continue
+        }
+        let val = int(valstr)
+        let row = []
+        push(row, cat)
+        push(row, val)
+        push(rows, row)
+    }
+    result["ok"] = 1
+    result["rows"] = rows
+    return result
+}

@@ -1,0 +1,8 @@
+files: 3
+copied: 3
+skipped: 0
+failed: 0
+copied:
+orders.txt
+readme.txt
+stock.txt

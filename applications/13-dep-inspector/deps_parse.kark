@@ -1,0 +1,132 @@
+// deps_parse.kark — manifest inspection for A09 (Phase 005).
+//
+// Textual heuristic over karkain.toml (genuine fields: name, version,
+// description, [dependencies], [dev-dependencies]; see Karkain pkg/pm).
+// NOT a full TOML parser: reads top-level name/version plus dependency
+// table entries of the form  name = { version = "x", ... }.
+// Returns { ok, error, name, version, deps } where deps maps dep name ->
+// version string ("" when unparseable).
+
+// deps_find returns the first index of sub in text, or -1.
+public func deps_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if (m == 0) {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if (substr(text, i, m) == sub) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// deps_quoted extracts the first "..." value from text, or "".
+public func deps_quoted(text) {
+    let a = deps_find(text, "\"")
+    if (a < 0) {
+        return ""
+    }
+    let rest = substr(text, a + 1, len(text) - a - 1)
+    let b = deps_find(rest, "\"")
+    if (b < 0) {
+        return ""
+    }
+    return substr(rest, 0, b)
+}
+
+// deps_sort returns a sorted copy of a string array.
+public func deps_sort(keys) {
+    let out = []
+    let i = 0
+    while (i < len(keys)) {
+        push(out, keys[i])
+        i = i + 1
+    }
+    let a = 0
+    while (a < len(out)) {
+        let b = a + 1
+        while (b < len(out)) {
+            if (out[b] < out[a]) {
+                let t = out[a]
+                out[a] = out[b]
+                out[b] = t
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+// deps_parse reads path and returns the manifest summary map.
+public func deps_parse(path) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["name"] = ""
+    r["version"] = ""
+    r["deps"] = {}
+    let content = readFile(path)
+    if (len(content) == 0) {
+        r["error"] = "cannot read " + path
+        return r
+    }
+    let deps = {}
+    let section = ""
+    let lines = split(content, "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        if (substr(line, 0, 1) == "#") {
+            continue
+        }
+        if (substr(line, 0, 1) == "[") {
+            let close = deps_find(line, "]")
+            if (close > 1) {
+                section = trim(substr(line, 1, close - 1))
+            } else {
+                section = ""
+            }
+            continue
+        }
+        let eq = deps_find(line, "=")
+        if (eq < 0) {
+            continue
+        }
+        let key = trim(substr(line, 0, eq))
+        let val = trim(substr(line, eq + 1, len(line) - eq - 1))
+        if (len(key) == 0) {
+            continue
+        }
+        if (section == "") {
+            if (key == "name") {
+                r["name"] = deps_quoted(val)
+                continue
+            }
+            if (key == "version") {
+                r["version"] = deps_quoted(val)
+                continue
+            }
+            continue
+        }
+        if (section == "dependencies") {
+            deps[key] = deps_quoted(val)
+            continue
+        }
+        if (section == "dev-dependencies") {
+            deps[key + " (dev)"] = deps_quoted(val)
+            continue
+        }
+    }
+    r["ok"] = 1
+    r["deps"] = deps
+    return r
+}

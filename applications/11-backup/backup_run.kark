@@ -1,0 +1,75 @@
+// backup_run.kark — content-compare backup for A06 (Phase 005).
+//
+// Copies files from srcDir to dstDir only when content differs (missing
+// destination reads as "", so new files always copy). Running twice is
+// idempotent: the second run skips everything. Flat only, no recursion,
+// no timestamps (no stat/mtime builtin, CAP-009); the destination
+// directory must already exist (no mkdir builtin, CAP-009).
+// readFile boundary: empty source files read as "" and are treated as
+// already backed up when the destination is also missing/empty.
+//
+// Returns { files, copied, skipped, failed, copied_names }.
+
+// backup_sort returns a sorted copy of a string array.
+public func backup_sort(names) {
+    let out = []
+    let i = 0
+    while (i < len(names)) {
+        push(out, names[i])
+        i = i + 1
+    }
+    let a = 0
+    while (a < len(out)) {
+        let b = a + 1
+        while (b < len(out)) {
+            if (out[b] < out[a]) {
+                let t = out[a]
+                out[a] = out[b]
+                out[b] = t
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+// backup_run performs the backup and returns the report map.
+public func backup_run(src, dst) {
+    let r = {}
+    r["files"] = 0
+    r["copied"] = 0
+    r["skipped"] = 0
+    r["failed"] = 0
+    r["copied_names"] = []
+    let names = backup_sort(listFiles(src))
+    let copied = []
+    let nfiles = 0
+    let ncopied = 0
+    let nskipped = 0
+    let nfailed = 0
+    let i = 0
+    while (i < len(names)) {
+        let content = readFile(src + "/" + names[i])
+        nfiles = nfiles + 1
+        let want = readFile(dst + "/" + names[i])
+        if (content == want) {
+            nskipped = nskipped + 1
+            i = i + 1
+            continue
+        }
+        if (writeFile(dst + "/" + names[i], content) == 1) {
+            ncopied = ncopied + 1
+            push(copied, names[i])
+        } else {
+            nfailed = nfailed + 1
+        }
+        i = i + 1
+    }
+    r["files"] = nfiles
+    r["copied"] = ncopied
+    r["skipped"] = nskipped
+    r["failed"] = nfailed
+    r["copied_names"] = copied
+    return r
+}

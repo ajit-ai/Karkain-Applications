@@ -1,0 +1,37 @@
+// app.kark — A12 Build/Project Assistant (Phase 005).
+//
+// Usage (built binary): build-assist <dir>
+// Validates project layout by name (manifest, entrypoint, .kark count)
+// and prints the exact karkain commands to run next. It does NOT invoke
+// the toolchain itself (system() cannot capture output and is not
+// portable). See README.rst.
+import assist_scan
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        println("Usage: build-assist <dir>")
+        return
+    }
+    let r = assist_scan.assist_scan(args[1])
+    if (r["ok"] == 0) {
+        println("error: cannot list " + args[1])
+        return
+    }
+    println("dir: " + assist_scan.assist_basename(args[1]))
+    println("entries: " + str(r["entries"]))
+    println("kark_files: " + str(r["kark_files"]))
+    if (r["manifest"] == 1) {
+        println("manifest: present")
+    } else {
+        println("manifest: absent")
+    }
+    if (r["entrypoint"] == 1) {
+        println("entrypoint: " + r["entry_name"])
+        println("suggest: karkain check " + r["entry_name"])
+        println("suggest: karkain build " + r["entry_name"] + " -o app.exe")
+    } else {
+        println("entrypoint: absent")
+        println("suggest: create app.kark entrypoint")
+    }
+}

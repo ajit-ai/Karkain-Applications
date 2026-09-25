@@ -1,0 +1,45 @@
+== reset ==
+ok
+== create ==
+ok
+== insert ==
+ok: 1
+ok: 1
+== select-all ==
+cols: id|name|email
+1|Alice|alice@example.com
+2|Bob|bob@example.com
+rows: 2
+== select-where ==
+cols: id|name
+1|Alice
+rows: 1
+== update ==
+ok: 1
+== select-updated ==
+cols: id|name|email
+1|Alice|alice@new.example.com
+rows: 1
+== delete ==
+ok: 1
+== select-final ==
+cols: id|name|email
+1|Alice|alice@new.example.com
+rows: 1
+== tables ==
+users
+tables: 1
+== schema ==
+cols: id|name|email
+rows: 1
+== persist ==
+saved
+== reload ==
+cols: id|name|email
+1|Alice|alice@new.example.com
+rows: 1
+== drop ==
+ok
+== tables-empty ==
+tables: 0
+done

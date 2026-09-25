@@ -1,0 +1,10 @@
+// sample2 - counters
+struct Counter {
+    count: int
+}
+
+func bump(c) {
+    return c + 1
+}
+
+let total = 0

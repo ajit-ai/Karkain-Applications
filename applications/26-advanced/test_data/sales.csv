@@ -1,0 +1,7 @@
+id,item,qty,price_cents,status
+1,pen,10,120,sold
+2,notebook,5,450,sold
+3,eraser,20,60,returned
+4,ruler,7,200,sold
+5,marker,3,350,pending
+6,clips,lots,90,sold

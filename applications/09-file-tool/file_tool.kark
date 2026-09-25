@@ -1,0 +1,91 @@
+// file_tool.kark — file operations for A02 (Phase 005).
+//
+// Verified builtins only: listFiles / readFile / writeFile / createFile /
+// removeFile / openFile / contains / split / trim / len / push.
+// Boundaries (documented, CAP-009): listFiles returns flat entry names only
+// (files and directories mixed, no type info, no recursion); readFile
+// returns "" for both missing and empty files; there is no copy/move/
+// rename/stat/mkdir builtin, so those operations are NOT offered.
+
+// tool_sort returns a sorted copy of a string array.
+public func tool_sort(names) {
+    let out = []
+    let i = 0
+    while (i < len(names)) {
+        push(out, names[i])
+        i = i + 1
+    }
+    let a = 0
+    while (a < len(out)) {
+        let b = a + 1
+        while (b < len(out)) {
+            if (out[b] < out[a]) {
+                let t = out[a]
+                out[a] = out[b]
+                out[b] = t
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+// tool_list returns sorted entry names of dir (empty when dir is missing,
+// empty, or a file path).
+public func tool_list(dir) {
+    return tool_sort(listFiles(dir))
+}
+
+// tool_exists reports whether path is a readable regular file. openFile
+// returns "" when the path cannot be opened for reading.
+public func tool_exists(path) {
+    if (openFile(path) != "") {
+        return 1
+    }
+    return 0
+}
+
+// tool_cat returns { ok, content } for a file. ok is 0 when the content is
+// empty, which covers both missing and empty files (readFile boundary).
+public func tool_cat(path) {
+    let r = {}
+    r["ok"] = 0
+    r["content"] = ""
+    let c = readFile(path)
+    if (len(c) == 0) {
+        return r
+    }
+    r["ok"] = 1
+    r["content"] = c
+    return r
+}
+
+// tool_write writes content to path (creates or replaces). Returns 1/0.
+public func tool_write(path, content) {
+    return writeFile(path, content)
+}
+
+// tool_delete removes path. Returns 1/0 (0 covers missing files).
+public func tool_delete(path) {
+    return removeFile(path)
+}
+
+// tool_search returns sorted names of entries in dir whose readable content
+// contains needle. Unreadable entries (subdirectories, missing files)
+// read as "" and never match a non-empty needle.
+public func tool_search(dir, needle) {
+    let hits = []
+    let names = tool_sort(listFiles(dir))
+    let i = 0
+    while (i < len(names)) {
+        let c = readFile(dir + "/" + names[i])
+        if (len(c) > 0) {
+            if (contains(c, needle) == 1) {
+                push(hits, names[i])
+            }
+        }
+        i = i + 1
+    }
+    return hits
+}

@@ -1,0 +1,10 @@
+name = "inventory"
+version = "0.2.0"
+description = "sample inventory service"
+
+[dependencies]
+stdlib = { version = "^0.14.0" }
+utils = { version = "1.0.0", source = "git", url = "https://example.com/utils.git" }
+
+[dev-dependencies]
+testkit = { version = "0.1.0" }

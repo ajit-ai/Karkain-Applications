@@ -1,0 +1,6 @@
+service: nightly
+step 1: ok
+step 2: ok: 1
+step 3: ok: 1
+step 4: cols: id|note
+steps: 4

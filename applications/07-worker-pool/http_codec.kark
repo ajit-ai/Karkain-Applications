@@ -1,0 +1,227 @@
+// http_codec.kark — minimal HTTP/1.1 codec over raw TCP for Phase 006.
+//
+// Scope (deliberately narrow, NOT a framework): build GET/POST/etc.
+// requests, parse responses, read requests (headers + Content-Length body),
+// write responses with correct Content-Length, always Connection: close.
+// Bodies are raw bytes (text/plain in our apps); no JSON, no chunked
+// encoding, no TLS, no routing here (routes live in the app layer).
+//
+// Verified builtins only: net_connect/net_write/net_read/net_close/
+// net_last_error, split/trim/substr/str/int/len/push.
+
+// http_find returns the first index of sub in text, or -1.
+public func http_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if (m == 0) {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if (substr(text, i, m) == sub) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// http_join_space joins parts[from:] with single spaces.
+public func http_join_space(parts, from) {
+    let out = ""
+    let i = from
+    while (i < len(parts)) {
+        if (i > from) {
+            out = out + " "
+        }
+        out = out + parts[i]
+        i = i + 1
+    }
+    return out
+}
+
+// http_build_request renders a request message.
+public func http_build_request(method, host, path, body) {
+    let eol = "\r\n"
+    let msg = method + " " + path + " HTTP/1.1" + eol
+    msg = msg + "Host: " + host + eol
+    msg = msg + "Connection: close" + eol
+    msg = msg + "Content-Length: " + str(len(body)) + eol
+    msg = msg + "Content-Type: text/plain" + eol
+    msg = msg + eol
+    msg = msg + body
+    return msg
+}
+
+// http_build_response renders a response message.
+public func http_build_response(status, reason, body) {
+    let eol = "\r\n"
+    let msg = "HTTP/1.1 " + str(status) + " " + reason + eol
+    msg = msg + "Connection: close" + eol
+    msg = msg + "Content-Length: " + str(len(body)) + eol
+    msg = msg + "Content-Type: text/plain" + eol
+    msg = msg + eol
+    msg = msg + body
+    return msg
+}
+
+// http_parse_response parses a full response into
+// { ok, error, status, reason, body }.
+public func http_parse_response(text) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["status"] = 0
+    r["reason"] = ""
+    r["body"] = ""
+    let pos = http_find(text, "\r\n\r\n")
+    if (pos < 0) {
+        r["error"] = "malformed response"
+        return r
+    }
+    let head = substr(text, 0, pos)
+    r["body"] = substr(text, pos + 4, len(text) - pos - 4)
+    let lines = split(head, "\n")
+    if (len(lines) < 1) {
+        r["error"] = "malformed response"
+        return r
+    }
+    let parts = split(trim(lines[0]), " ")
+    if (len(parts) < 2) {
+        r["error"] = "malformed status line"
+        return r
+    }
+    r["status"] = int(parts[1])
+    r["reason"] = http_join_space(parts, 2)
+    r["ok"] = 1
+    return r
+}
+
+// http_header_value returns the trimmed value of a header name, or "".
+public func http_header_value(head, name) {
+    let lines = split(head, "\n")
+    let i = 1
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        let c = http_find(line, ":")
+        if (c > 0) {
+            let hname = trim(substr(line, 0, c))
+            if (hname == name) {
+                return trim(substr(line, c + 1, len(line) - c - 1))
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// http_read_request reads one request from conn into
+// { ok, error, method, path, body }. ok is 0 with error set on empty
+// close, timeout (see net_last_error), or malformed input.
+public func http_read_request(conn) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["method"] = ""
+    r["path"] = ""
+    r["body"] = ""
+    let buf = ""
+    let guard = 0
+    while (guard < 16) {
+        guard = guard + 1
+        if (http_find(buf, "\r\n\r\n") >= 0) {
+            break
+        }
+        let chunk = net_read(conn, 4096)
+        if (len(chunk) == 0) {
+            break
+        }
+        buf = buf + chunk
+    }
+    let pos = http_find(buf, "\r\n\r\n")
+    if (pos < 0) {
+        let err = net_last_error()
+        if (len(err) > 0) {
+            r["error"] = err
+        } else {
+            r["error"] = "incomplete request"
+        }
+        return r
+    }
+    let head = substr(buf, 0, pos)
+    let body = substr(buf, pos + 4, len(buf) - pos - 4)
+    let lines = split(head, "\n")
+    if (len(lines) < 1) {
+        r["error"] = "malformed request"
+        return r
+    }
+    let parts = split(trim(lines[0]), " ")
+    if (len(parts) < 2) {
+        r["error"] = "malformed request line"
+        return r
+    }
+    let cl = http_header_value(head, "Content-Length")
+    if (len(cl) > 0) {
+        let need = int(cl)
+        let more = 0
+        while (len(body) < need) {
+            more = more + 1
+            if (more > 16) {
+                break
+            }
+            let chunk = net_read(conn, 4096)
+            if (len(chunk) == 0) {
+                break
+            }
+            body = body + chunk
+        }
+    }
+    r["ok"] = 1
+    r["method"] = parts[0]
+    r["path"] = parts[1]
+    r["body"] = body
+    return r
+}
+
+// http_request performs one complete client exchange and returns the
+// parsed response map (ok 0 + error on connect/write/empty failures).
+public func http_request(host, port, method, path, body) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["status"] = 0
+    r["reason"] = ""
+    r["body"] = ""
+    let fd = net_connect(host, port)
+    if (fd < 0) {
+        r["error"] = net_last_error()
+        return r
+    }
+    let pkt = http_build_request(method, host, path, body)
+    if (net_write(fd, pkt) < 0) {
+        r["error"] = net_last_error()
+        net_close(fd)
+        return r
+    }
+    let text = ""
+    let guard = 0
+    while (guard < 64) {
+        guard = guard + 1
+        let chunk = net_read(fd, 4096)
+        if (len(chunk) == 0) {
+            break
+        }
+        text = text + chunk
+    }
+    net_close(fd)
+    if (len(text) == 0) {
+        let err = net_last_error()
+        if (len(err) > 0) {
+            r["error"] = err
+        } else {
+            r["error"] = "empty response"
+        }
+        return r
+    }
+    return http_parse_response(text)
+}

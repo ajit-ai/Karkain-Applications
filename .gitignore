@@ -1,0 +1,4 @@
+# Generated Sphinx HTML (built locally or in CI; never committed).
+docs/_build/
+# Built Karkain binaries (verification uses TEMP outputs).
+*.exe

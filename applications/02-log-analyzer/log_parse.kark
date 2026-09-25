@@ -1,0 +1,78 @@
+// log_parse.kark — log parsing for A04 (Phase 003).
+//
+// Supported format (deliberately simple, NOT a generic production parser):
+//   DATE LEVEL MESSAGE
+// where DATE is any non-empty token, LEVEL is INFO/WARN/ERROR, and MESSAGE
+// is the remainder of the line. Tokens are separated by spaces; surrounding
+// whitespace is tolerated. Empty lines are skipped. Lines with fewer than
+// three tokens, an empty field, or an unknown level become unknown records.
+//
+// Returns a map: { ok, error, records } where each record is
+// [date, level, message]; unknown records are ["", "UNKNOWN", ""].
+//
+// Uses only verified Karkain 1.1.0 builtins (readFile/split/trim/len/push).
+public func log_parse_file(path) {
+    let result = {}
+    result["ok"] = 0
+    result["error"] = ""
+    result["records"] = []
+    let content = readFile(path)
+    if (len(content) == 0) {
+        result["error"] = "cannot read " + path
+        return result
+    }
+    let records = []
+    let lines = split(content, "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if (len(line) == 0) {
+            continue
+        }
+        let rec = log_parse_line(line)
+        push(records, rec)
+    }
+    result["ok"] = 1
+    result["records"] = records
+    return result
+}
+
+// log_parse_line parses one non-empty line into [date, level, message].
+public func log_parse_line(line) {
+    let bad = []
+    push(bad, "")
+    push(bad, "UNKNOWN")
+    push(bad, "")
+    let fields = split(line, " ")
+    if (len(fields) < 3) {
+        return bad
+    }
+    let date = trim(fields[0])
+    let level = trim(fields[1])
+    if (len(date) == 0) {
+        return bad
+    }
+    if (level != "INFO") {
+        if (level != "WARN") {
+            if (level != "ERROR") {
+                return bad
+            }
+        }
+    }
+    let msg = trim(fields[2])
+    let j = 3
+    while (j < len(fields)) {
+        msg = msg + " " + trim(fields[j])
+        j = j + 1
+    }
+    msg = trim(msg)
+    if (len(msg) == 0) {
+        return bad
+    }
+    let rec = []
+    push(rec, date)
+    push(rec, level)
+    push(rec, msg)
+    return rec
+}

@@ -1,0 +1,5 @@
+// demo util module
+
+public func double(n) {
+    return n * 2
+}

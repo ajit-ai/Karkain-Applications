@@ -1,0 +1,348 @@
+// app.kark — Phase 007 Concurrency (A25-A27, A29-A30).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   workers pool <n>   A25 worker pool: 8 square jobs over n workers
+//   workers pipeline   A26 producer -> 2 stages -> consumer (doubles 1..5)
+//   workers files      A27 concurrent line-counts over test_data f1..f3
+//   workers grid       A30 3x3 multiplication grid, one spawn per cell
+//   workers events     A29 producer -> 2 taggers -> aggregator tally
+// Determinism: cross-task results flow as {id, out} maps over result
+// channels (join() carries INT results only — runtime fact); main
+// collects the fixed expected count, sorts by id, then prints.
+// Workers stop on sentinel {stop} maps; no close-detection primitive.
+import pool
+import http_codec
+
+func workers_usage() {
+    println("Usage: workers pool <workers>")
+    println("Usage: workers pipeline")
+    println("Usage: workers files <dir>")
+    println("Usage: workers grid")
+    println("Usage: workers events")
+    println("Usage: workers http-conc <port> <handlers> <each>")
+    println("Usage: workers http-client <host> <port> <method> <path> [body]")
+}
+
+// run_pool executes 8 square jobs over w workers, prints by id + total.
+func run_pool(w) {
+    if (w < 1) {
+        println("error: bad workers: " + str(w))
+        return
+    }
+    if (w > 8) {
+        println("error: bad workers: " + str(w))
+        return
+    }
+    let jobs = channel()
+    let results = channel()
+    let k = 0
+    while (k < w) {
+        spawn(pool_worker, jobs, results)
+        k = k + 1
+    }
+    let id = 1
+    while (id <= 8) {
+        let job = {}
+        job["id"] = id
+        job["n"] = id
+        chanSend(jobs, job)
+        id = id + 1
+    }
+    let s = 0
+    while (s < w) {
+        let stop = {}
+        stop["stop"] = 1
+        chanSend(jobs, stop)
+        s = s + 1
+    }
+    let ids = []
+    let outs = []
+    let r = 0
+    while (r < 8) {
+        let res = receive(results)
+        push(ids, res["id"])
+        push(outs, res["out"])
+        r = r + 1
+    }
+    chanClose(jobs)
+    chanClose(results)
+    wait_all()
+    sort_ids(ids, outs)
+    let total = 0
+    let i = 0
+    while (i < 8) {
+        println("job " + str(ids[i]) + ": " + str(ids[i]) + "^2=" + str(outs[i]))
+        total = total + outs[i]
+        i = i + 1
+    }
+    println("total: " + str(total))
+}
+
+// run_pipeline doubles 1..5 through 2 stage workers (A26).
+func run_pipeline() {
+    let jobs = channel()
+    let results = channel()
+    spawn(pipe_worker, jobs, results)
+    spawn(pipe_worker, jobs, results)
+    let id = 1
+    while (id <= 5) {
+        let job = {}
+        job["id"] = id
+        job["v"] = id
+        chanSend(jobs, job)
+        id = id + 1
+    }
+    let stop1 = {}
+    stop1["stop"] = 1
+    chanSend(jobs, stop1)
+    let stop2 = {}
+    stop2["stop"] = 1
+    chanSend(jobs, stop2)
+    let ids = []
+    let outs = []
+    let r = 0
+    while (r < 5) {
+        let res = receive(results)
+        push(ids, res["id"])
+        push(outs, res["out"])
+        r = r + 1
+    }
+    chanClose(jobs)
+    chanClose(results)
+    wait_all()
+    sort_ids(ids, outs)
+    let total = 0
+    let i = 0
+    while (i < 5) {
+        println("item " + str(ids[i]) + ": " + str(outs[i]))
+        total = total + outs[i]
+        i = i + 1
+    }
+    println("sum: " + str(total))
+}
+
+// run_files counts non-blank lines of f1..f3 under dir concurrently (A27).
+// dir is argv-supplied so the harness can point at test_data exactly.
+func run_files(dir) {
+    let h0 = spawn(countlines, dir + "/f1.txt")
+    let h1 = spawn(countlines, dir + "/f2.txt")
+    let h2 = spawn(countlines, dir + "/f3.txt")
+    let c0 = join(h0)
+    let c1 = join(h1)
+    let c2 = join(h2)
+    wait_all()
+    println("f1.txt: " + str(c0))
+    println("f2.txt: " + str(c1))
+    println("f3.txt: " + str(c2))
+    println("total: " + str(c0 + c1 + c2))
+}
+
+// run_grid computes a 3x3 multiplication grid, one spawn per cell (A30).
+// Ordered joins keep row-major output deterministic.
+func run_grid() {
+    let h = []
+    let row = 0
+    while (row < 3) {
+        let col = 0
+        while (col < 3) {
+            push(h, spawn(cell, row, col))
+            col = col + 1
+        }
+        row = row + 1
+    }
+    let vals = []
+    let i = 0
+    while (i < 9) {
+        push(vals, join(h[i]))
+        i = i + 1
+    }
+    wait_all()
+    let total = 0
+    let r = 0
+    while (r < 3) {
+        let line = ""
+        let c = 0
+        while (c < 3) {
+            if (c > 0) {
+                line = line + " "
+            }
+            let v = vals[r * 3 + c]
+            line = line + str(v)
+            total = total + v
+            c = c + 1
+        }
+        println(line)
+        r = r + 1
+    }
+    println("total: " + str(total))
+}
+
+// run_events classifies 1..6 through 2 taggers; main aggregates (A29).
+// Order-independent tally (counts + presence) keeps output deterministic.
+func run_events() {
+    let jobs = channel()
+    let results = channel()
+    spawn(tag_worker, jobs, results)
+    spawn(tag_worker, jobs, results)
+    let id = 1
+    while (id <= 6) {
+        let job = {}
+        job["id"] = id
+        job["v"] = id
+        chanSend(jobs, job)
+        id = id + 1
+    }
+    let stop1 = {}
+    stop1["stop"] = 1
+    chanSend(jobs, stop1)
+    let stop2 = {}
+    stop2["stop"] = 1
+    chanSend(jobs, stop2)
+    let big = 0
+    let small = 0
+    let r = 0
+    while (r < 6) {
+        let res = receive(results)
+        if (res["out"] == 1) {
+            big = big + 1
+        } else {
+            small = small + 1
+        }
+        r = r + 1
+    }
+    chanClose(jobs)
+    chanClose(results)
+    wait_all()
+    println("big: " + str(big))
+    println("small: " + str(small))
+    println("events: 6")
+}
+
+// conc_handler serves `each` connections then exits (A28). Returns count.
+// No per-request prints: handler interleaving is racy, so only the main
+// task prints the joined total (deterministic).
+func conc_handler(srv, each) {
+    let done = 0
+    while (done < each) {
+        let conn = net_accept(srv)
+        if (conn < 0) {
+            break
+        }
+        let req = http_codec.http_read_request(conn)
+        let status = 404
+        let reason = "Not Found"
+        let body = "error: not found"
+        if (req["ok"] == 1) {
+            if (req["path"] == "/hello") {
+                status = 200
+                reason = "OK"
+                body = "Hello, Karkain!"
+            }
+        }
+        net_write(conn, http_codec.http_build_response(status, reason, body))
+        net_close(conn)
+        done = done + 1
+    }
+    return done
+}
+
+// run_http_conc serves handlers*each requests over shared listener (A28).
+func run_http_conc(port, handlers, each) {
+    if (handlers < 1) {
+        println("error: bad handlers")
+        return
+    }
+    if (each < 1) {
+        println("error: bad each")
+        return
+    }
+    let srv = net_listen("127.0.0.1", port)
+    if (srv < 0) {
+        println("server: listen failed")
+        return
+    }
+    println("server: listening 127.0.0.1:" + str(port))
+    let hs = []
+    let k = 0
+    while (k < handlers) {
+        push(hs, spawn(conc_handler, srv, each))
+        k = k + 1
+    }
+    let total = 0
+    let j = 0
+    while (j < len(hs)) {
+        total = total + join(hs[j])
+        j = j + 1
+    }
+    net_close(srv)
+    wait_all()
+    println("server: served " + str(total))
+}
+
+// run_http_client issues one request and prints status + body (A28 cases).
+func run_http_client(host, port, method, path, body) {
+    let resp = http_codec.http_request(host, port, method, path, body)
+    if (resp["ok"] == 0) {
+        println("client: request failed: " + resp["error"])
+        return
+    }
+    println("client: status " + str(resp["status"]))
+    println("client: body " + resp["body"])
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 2) {
+        workers_usage()
+        return
+    }
+    if (args[1] == "pool") {
+        if (len(args) < 3) {
+            workers_usage()
+            return
+        }
+        run_pool(int(args[2]))
+        return
+    }
+    if (args[1] == "pipeline") {
+        run_pipeline()
+        return
+    }
+    if (args[1] == "files") {
+        if (len(args) < 3) {
+            workers_usage()
+            return
+        }
+        run_files(args[2])
+        return
+    }
+    if (args[1] == "grid") {
+        run_grid()
+        return
+    }
+    if (args[1] == "events") {
+        run_events()
+        return
+    }
+    if (args[1] == "http-conc") {
+        if (len(args) < 5) {
+            workers_usage()
+            return
+        }
+        run_http_conc(int(args[2]), int(args[3]), int(args[4]))
+        return
+    }
+    if (args[1] == "http-client") {
+        if (len(args) < 6) {
+            workers_usage()
+            return
+        }
+        let body = ""
+        if (len(args) > 6) {
+            body = args[6]
+        }
+        run_http_client(args[2], int(args[3]), args[4], args[5], body)
+        return
+    }
+    workers_usage()
+}

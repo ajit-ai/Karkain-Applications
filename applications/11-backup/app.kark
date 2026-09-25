@@ -1,0 +1,31 @@
+// app.kark — A06 Backup Utility (Phase 005).
+//
+// Usage (built binary): backup <srcDir> <dstDir>
+// Copies changed files by content comparison; skips identical ones.
+// The destination directory must exist (Karkain cannot create
+// directories). Flat only, no timestamps. See README.rst.
+import backup_run
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        println("Usage: backup <srcDir> <dstDir>")
+        return
+    }
+    let r = backup_run.backup_run(args[1], args[2])
+    println("files: " + str(r["files"]))
+    println("copied: " + str(r["copied"]))
+    println("skipped: " + str(r["skipped"]))
+    println("failed: " + str(r["failed"]))
+    println("copied:")
+    let names = r["copied_names"]
+    if (len(names) == 0) {
+        println("(none)")
+        return
+    }
+    let i = 0
+    while (i < len(names)) {
+        println(names[i])
+        i = i + 1
+    }
+}

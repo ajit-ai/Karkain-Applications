@@ -1,0 +1,3 @@
+expected-client-hello.txt	client	127.0.0.1	49071	GET	/hello
+expected-client-404.txt	client	127.0.0.1	49071	GET	/nope
+expected-client-404.txt	client	127.0.0.1	49071	POST	/status	ping-body

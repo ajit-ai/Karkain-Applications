@@ -1,0 +1,175 @@
+// source_scan.kark — textual source scanning for A07 (Phase 003).
+//
+// Heuristics (documented, NOT parser/AST metrics):
+//   lines    = newline count via byte indexing, plus one when content does
+//              not end with a newline. (split omits empty elements, so blank
+//              lines are invisible to split; see limitation note below.)
+//   blank    = lines minus nonempty.
+//   nonempty = split(content, "\n") elements that are non-empty after trim,
+//              minus nothing: split already drops empties, so every split
+//              element that survives trim is counted.
+//   LIMITATION (verified Karkain 1.1.0): split(s, "\n") drops empty
+//   substrings, therefore a truly blank line never appears as an element.
+//   Blank lines are derived arithmetically (lines - nonempty), never
+//   observed directly.
+//   comment  = trimmed line starts with "//" (substr(t, 0, 2) == "//").
+//   chars    = sum of len(line) over counted lines (newlines excluded).
+//   func     = non-comment lines where contains(line, "func") == 1.
+//   import   = non-comment lines where contains(line, "import") == 1.
+//   struct   = non-comment lines where contains(line, "struct") == 1.
+//   let      = non-comment lines where contains(line, "let") == 1.
+// Comment lines are excluded from construct counts so a "// func helper"
+// note is not mistaken for code.
+//
+// Uses only verified Karkain 1.1.0 builtins
+// (readFile/split/trim/substr/contains/len/push/hasKey/map_keys_of).
+
+// source_scan_file returns { ok, error, files, lines, nonempty, comments,
+// chars, func, import, struct, let } for one path. ext is handled by the
+// caller via source_scan_ext.
+public func source_scan_file(path) {
+    let st = {}
+    st["ok"] = 0
+    st["error"] = ""
+    st["files"] = 0
+    st["lines"] = 0
+    st["nonempty"] = 0
+    st["blank"] = 0
+    st["comments"] = 0
+    st["chars"] = 0
+    st["func"] = 0
+    st["import"] = 0
+    st["struct"] = 0
+    st["let"] = 0
+    let content = readFile(path)
+    if (len(content) == 0) {
+        st["error"] = "cannot read " + path
+        return st
+    }
+    let parts = split(content, "\n")
+    let lines = []
+    let i = 0
+    while (i < len(parts)) {
+        push(lines, parts[i])
+        i = i + 1
+    }
+    if (len(lines) > 0) {
+        if (len(lines[len(lines) - 1]) == 0) {
+            let cut = []
+            let j = 0
+            while (j < len(lines) - 1) {
+                push(cut, lines[j])
+                j = j + 1
+            }
+            lines = cut
+        }
+    }
+    let nlines = source_scan_line_count(content)
+    let nonempty = 0
+    let comments = 0
+    let chars = 0
+    let nfunc = 0
+    let nimport = 0
+    let nstruct = 0
+    let nlet = 0
+    let k = 0
+    while (k < len(lines)) {
+        let line = lines[k]
+        chars = chars + len(line)
+        let t = trim(line)
+        if (len(t) == 0) {
+            k = k + 1
+            continue
+        }
+        nonempty = nonempty + 1
+        if (len(t) >= 2) {
+            if (substr(t, 0, 2) == "//") {
+                comments = comments + 1
+                k = k + 1
+                continue
+            }
+        }
+        if (contains(line, "func") == 1) {
+            nfunc = nfunc + 1
+        }
+        if (contains(line, "import") == 1) {
+            nimport = nimport + 1
+        }
+        if (contains(line, "struct") == 1) {
+            nstruct = nstruct + 1
+        }
+        if (contains(line, "let") == 1) {
+            nlet = nlet + 1
+        }
+        k = k + 1
+    }
+    st["ok"] = 1
+    st["files"] = 1
+    st["lines"] = nlines
+    st["nonempty"] = nonempty
+    st["blank"] = nlines - nonempty
+    st["comments"] = comments
+    st["chars"] = chars
+    st["func"] = nfunc
+    st["import"] = nimport
+    st["struct"] = nstruct
+    st["let"] = nlet
+    return st
+}
+
+// source_scan_line_count counts physical lines via byte indexing:
+// newlines in content, plus one when content does not end with "\n".
+public func source_scan_line_count(content) {
+    let n = 0
+    let i = 0
+    while (i < len(content)) {
+        if (content[i] == "\n") {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    if (len(content) == 0) {
+        return 0
+    }
+    if (content[len(content) - 1] != "\n") {
+        n = n + 1
+    }
+    return n
+}
+
+// source_scan_ext returns the extension after the last "." in path,
+// or "" when there is none.
+public func source_scan_ext(path) {
+    let i = len(path) - 1
+    while (i >= 0) {
+        if (substr(path, i, 1) == ".") {
+            return substr(path, i + 1, len(path) - i - 1)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+// source_scan_sort returns a sorted copy of a string array.
+public func source_scan_sort(keys) {
+    let out = []
+    let i = 0
+    while (i < len(keys)) {
+        push(out, keys[i])
+        i = i + 1
+    }
+    let a = 0
+    while (a < len(out)) {
+        let b = a + 1
+        while (b < len(out)) {
+            if (out[b] < out[a]) {
+                let t = out[a]
+                out[a] = out[b]
+                out[b] = t
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}

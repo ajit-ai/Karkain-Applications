@@ -1,0 +1,11 @@
+#karkain-db-v1
+T|orders|id,customer,amount,status
+R|orders|i:1|s:alice|i:1200|s:paid
+R|orders|i:2|s:bob|i:450|s:paid
+R|orders|i:3|s:carol|i:3000|s:shipped
+R|orders|i:5|s:erin|i:750|s:paid
+T|orders_copy|id,customer,amount,status
+R|orders_copy|i:1|s:alice|i:1200|s:paid
+R|orders_copy|i:2|s:bob|i:450|s:paid
+R|orders_copy|i:3|s:carol|i:3000|s:shipped
+R|orders_copy|i:5|s:erin|i:750|s:paid

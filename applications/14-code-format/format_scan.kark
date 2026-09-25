@@ -1,0 +1,86 @@
+// format_scan.kark — trailing-whitespace normalization for A10 (Phase 005).
+//
+// Deliberately narrow scope: this is NOT a full code formatter (no AST,
+// no indentation engine — Karkain exposes no parser API at 1.1.0). It
+// strips trailing spaces/tabs/CRs per line and rewrites the file content,
+// reporting how many lines changed. Leading whitespace (indentation) is
+// never touched.
+//
+// Returns { ok, error, changed, total, content }.
+
+// format_rtrim strips trailing " ", "\t", "\r" from s via byte indexing.
+public func format_rtrim(s) {
+    let end = len(s) - 1
+    while (end >= 0) {
+        let ch = s[end]
+        if (ch == " ") {
+            end = end - 1
+            continue
+        }
+        if (ch == "\t") {
+            end = end - 1
+            continue
+        }
+        if (ch == "\r") {
+            end = end - 1
+            continue
+        }
+        break
+    }
+    return substr(s, 0, end + 1)
+}
+
+// format_normalize reads src, normalizes line content, and writes the
+// result to dst. Split-on-newline structure is kept with the trailing
+// newline preserved; only trailing whitespace per line is removed.
+// Known split boundary (verified 1.1.0): truly empty lines are dropped by
+// split, so a file containing them loses those lines on rewrite.
+// Whitespace-only lines survive (they are non-empty pre-trim).
+public func format_normalize(src, dst) {
+    let r = {}
+    r["ok"] = 0
+    r["error"] = ""
+    r["changed"] = 0
+    r["total"] = 0
+    let content = readFile(src)
+    if (len(content) == 0) {
+        r["error"] = "cannot read " + src
+        return r
+    }
+    let ends_newline = 0
+    if (content[len(content) - 1] == "\n") {
+        ends_newline = 1
+    }
+    let lines = split(content, "\n")
+    let out = []
+    let changed = 0
+    let i = 0
+    while (i < len(lines)) {
+        let clean = format_rtrim(lines[i])
+        if (clean != lines[i]) {
+            changed = changed + 1
+        }
+        push(out, clean)
+        i = i + 1
+    }
+    let text = ""
+    let j = 0
+    while (j < len(out)) {
+        if (j > 0) {
+            text = text + "\n"
+        }
+        text = text + out[j]
+        j = j + 1
+    }
+    if (ends_newline == 1) {
+        text = text + "\n"
+    }
+    if (writeFile(dst, text) == 1) {
+        r["ok"] = 1
+        r["changed"] = changed
+        r["total"] = len(out)
+        return r
+    }
+    r["error"] = "cannot write " + dst
+    return r
+}

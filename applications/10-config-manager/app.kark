@@ -1,0 +1,86 @@
+// app.kark — A03 Configuration Manager (Phase 005).
+//
+// Modes (built binary; `karkain run` forwards no program arguments):
+//   config-manager show <file>
+//   config-manager get <file> <section.key>
+//   config-manager validate <file> <key> [key ...]
+// INI-like subset only (see config_parse.kark); JSON is unavailable
+// (CAP-003). See README.rst.
+import config_parse
+
+func config_usage() {
+    println("Usage: config-manager show <file>")
+    println("Usage: config-manager get <file> <section.key>")
+    println("Usage: config-manager validate <file> <key> [key ...]")
+}
+
+func main() {
+    let args = getArgs()
+    if (len(args) < 3) {
+        config_usage()
+        return
+    }
+    let mode = args[1]
+    if (mode != "show") {
+        if (mode != "get") {
+            if (mode != "validate") {
+                config_usage()
+                return
+            }
+        }
+    }
+    if (mode == "get") {
+        if (len(args) < 4) {
+            config_usage()
+            return
+        }
+    }
+    if (mode == "validate") {
+        if (len(args) < 4) {
+            config_usage()
+            return
+        }
+    }
+    let loaded = config_parse.config_load(args[2])
+    if (loaded["ok"] == 0) {
+        println("error: cannot read " + args[2])
+        return
+    }
+    let data = loaded["data"]
+    if (mode == "show") {
+        let keys = config_parse.config_sort(map_keys_of(data))
+        if (len(keys) == 0) {
+            println("(empty)")
+            return
+        }
+        let i = 0
+        while (i < len(keys)) {
+            println(keys[i] + " = " + data[keys[i]])
+            i = i + 1
+        }
+        return
+    }
+    if (mode == "get") {
+        if (hasKey(data, args[3]) == 1) {
+            println(data[args[3]])
+        } else {
+            println("error: missing key " + args[3])
+        }
+        return
+    }
+    if (mode == "validate") {
+        let missing = 0
+        let i = 3
+        while (i < len(args)) {
+            if (hasKey(data, args[i]) == 0) {
+                println("missing: " + args[i])
+                missing = missing + 1
+            }
+            i = i + 1
+        }
+        if (missing == 0) {
+            println("ok")
+        }
+        return
+    }
+}

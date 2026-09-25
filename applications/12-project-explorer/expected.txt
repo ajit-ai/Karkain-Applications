@@ -1,0 +1,8 @@
+entries: 4
+karkain.toml: 79 chars
+main.kark: 78 chars
+notes.txt: 19 chars
+util.kark: 64 chars
+total_chars: 240
+kark_files: 2
+manifest: present

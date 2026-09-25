@@ -1,0 +1,6 @@
+console: status
+console: up
+tables: 2
+table: inventory rows=3
+table: services rows=1
+rows: 4
