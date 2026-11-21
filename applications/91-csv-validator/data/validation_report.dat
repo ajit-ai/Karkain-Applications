@@ -1,0 +1,6 @@
+BAD_HEADER bad_header.csv expected=id,name,amount found=id,name,total
+SUMMARY bad_header.csv header_ok=0 valid_rows=1 invalid_rows=0
+BAD_ROW bad_rows.csv line=3 cols=2
+BAD_ROW bad_rows.csv line=4 cols=4
+SUMMARY bad_rows.csv header_ok=1 valid_rows=1 invalid_rows=2
+SUMMARY good.csv header_ok=1 valid_rows=2 invalid_rows=0

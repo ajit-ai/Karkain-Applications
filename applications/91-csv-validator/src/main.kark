@@ -1,0 +1,61 @@
+// Karkain CSV Validator - Round 2 REAL file validation.
+// listFiles() enumerates the data/ directory, readFile() reads every .csv file,
+// the header and per-row column counts are validated, invalid rows are reported
+// and the results are persisted to data/validation_report.dat. No fabricated
+// data: only the actual files found on disk are validated.
+
+func validate_one(dir, name, expected_header, expected_cols) {
+    let path = dir + "/" + name
+    let rows = split(readFile(path), "\n")
+    let rep = ""
+    let header_ok = 0
+    if (len(rows) > 0) {
+        if (trim(rows[0]) == expected_header) { header_ok = 1 }
+    }
+    if (header_ok == 0) {
+        let found = ""
+        if (len(rows) > 0) { found = trim(rows[0]) }
+        rep = rep + "BAD_HEADER " + name + " expected=" + expected_header + " found=" + found + "\n"
+    }
+    let i = 1
+    let good = 0
+    let bad = 0
+    while (i < len(rows)) {
+        let row = trim(rows[i])
+        if (row != "") {
+            let cols = split(row, ",")
+            if (len(cols) == expected_cols) {
+                good = good + 1
+            } else {
+                bad = bad + 1
+                rep = rep + "BAD_ROW " + name + " line=" + str(i + 1) + " cols=" + str(len(cols)) + "\n"
+            }
+        }
+        i = i + 1
+    }
+    rep = rep + "SUMMARY " + name + " header_ok=" + str(header_ok) + " valid_rows=" + str(good) + " invalid_rows=" + str(bad) + "\n"
+    return rep
+}
+
+func main() {
+    let dir = "data"
+    let expected_header = "id,name,amount"
+    let expected_cols = 3
+    print("CSV_VALIDATOR_START dir=" + dir + " expected_header=" + expected_header)
+    let files = listFiles(dir)
+    let report = ""
+    let checked = 0
+    let i = 0
+    while (i < len(files)) {
+        let name = files[i]
+        if (contains(name, ".csv")) {
+            checked = checked + 1
+            print("CSV_FILE " + name)
+            report = report + validate_one(dir, name, expected_header, expected_cols)
+        }
+        i = i + 1
+    }
+    writeFile("data/validation_report.dat", report)
+    print(report)
+    print("CSV_VALIDATOR_OK files=" + str(checked))
+}
