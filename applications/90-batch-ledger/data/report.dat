@@ -1,0 +1,7 @@
+BALANCE cash amount=1250 entries=2
+BALANCE revenue amount=1000 entries=1
+BALANCE expense amount=250 entries=1
+ACCOUNT cash Cash balance=1250 entries=2
+ACCOUNT revenue Revenue balance=1000 entries=1
+ACCOUNT expense Expense balance=250 entries=1
+LEDGER_TOTAL accounts=3 entries=4

@@ -1,0 +1,155 @@
+// Karkain Batch Ledger - first functional slice.
+// Self-contained application: chart of accounts plus supplied journal entries.
+// ACCOUNT|code|name registers an account (upsert by code).
+// ENTRY|ref|account|amount records an entry (deduplicated by reference).
+// BALANCE|code reports one account balance. REPORT prints the full ledger.
+// All state is pipe-delimited records persisted under relative data/ paths.
+
+func load_state(path) {
+    let lines = split(readFile(path), "\n")
+    let out = []
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        if (line != "") { push(out, line) }
+        i = i + 1
+    }
+    return out
+}
+
+func persist(path, records) {
+    let out = ""
+    let i = 0
+    while (i < len(records)) {
+        out = out + records[i] + "\n"
+        i = i + 1
+    }
+    writeFile(path, out)
+}
+
+func put_account(state, code, name) {
+    let rec = "ACCOUNT|" + code + "|" + name
+    let out = []
+    let i = 0
+    let replaced = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "ACCOUNT") {
+            if (f[1] == code) { push(out, rec); replaced = 1 } else { push(out, state[i]) }
+        } else { push(out, state[i]) }
+        i = i + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func add_entry(state, ref, account, amount) {
+    let rec = "ENTRY|" + ref + "|" + account + "|" + str(amount)
+    let out = []
+    let i = 0
+    let seen = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "ENTRY") {
+            if (f[1] == ref) { seen = 1 }
+        }
+        push(out, state[i])
+        i = i + 1
+    }
+    if (seen == 0) { push(out, rec) }
+    return out
+}
+
+func balance_of(state, code) {
+    let sum = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "ENTRY") {
+            if (f[2] == code) { sum = sum + int(f[3]) }
+        }
+        i = i + 1
+    }
+    return sum
+}
+
+func entries_for(state, code) {
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "ENTRY") {
+            if (f[2] == code) { n = n + 1 }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func count_kind(state, kind) {
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == kind) { n = n + 1 }
+        i = i + 1
+    }
+    return n
+}
+
+func balance_report(state, code) {
+    let line = "BALANCE " + code + " amount=" + str(balance_of(state, code)) + " entries=" + str(entries_for(state, code))
+    print(line)
+    return line + "\n"
+}
+
+func report_ledger(state) {
+    let rep = ""
+    let i = 0
+    while (i < len(state)) {
+        let a = split(state[i], "|")
+        if (a[0] == "ACCOUNT") {
+            let line = "ACCOUNT " + a[1] + " " + a[2] + " balance=" + str(balance_of(state, a[1])) + " entries=" + str(entries_for(state, a[1]))
+            print(line)
+            rep = rep + line + "\n"
+        }
+        i = i + 1
+    }
+    let total = "LEDGER_TOTAL accounts=" + str(count_kind(state, "ACCOUNT")) + " entries=" + str(count_kind(state, "ENTRY"))
+    print(total)
+    rep = rep + total + "\n"
+    return rep
+}
+
+func main() {
+    let cmd_path = "data/commands.dat"
+    let state_path = "data/state.dat"
+    let report_path = "data/report.dat"
+    let cmds = split(readFile(cmd_path), "\n")
+    let state = load_state(state_path)
+    let report = ""
+    let i = 0
+    while (i < len(cmds)) {
+        let line = trim(cmds[i])
+        if (line != "") {
+            let f = split(line, "|")
+            let op = f[0]
+            if (op == "ACCOUNT") {
+                state = put_account(state, f[1], f[2])
+            }
+            if (op == "ENTRY") {
+                state = add_entry(state, f[1], f[2], int(f[3]))
+            }
+            if (op == "BALANCE") {
+                report = report + balance_report(state, f[1])
+            }
+            if (op == "REPORT") {
+                report = report + report_ledger(state)
+            }
+        }
+        i = i + 1
+    }
+    persist(state_path, state)
+    persist(report_path, split(report, "\n"))
+    print("BATCH_LEDGER_OK accounts=" + str(count_kind(state, "ACCOUNT")) + " entries=" + str(count_kind(state, "ENTRY")))
+}

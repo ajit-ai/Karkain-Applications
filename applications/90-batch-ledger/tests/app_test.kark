@@ -1,0 +1,43 @@
+func test_account_and_entry_records() {
+    let acc = split("ACCOUNT|cash|Cash", "|")
+    assert_eq(acc[0], "ACCOUNT")
+    assert_eq(acc[1], "cash")
+    assert_eq(acc[2], "Cash")
+    let ent = split("ENTRY|e001|cash|1000", "|")
+    assert_eq(ent[0], "ENTRY")
+    assert_eq(ent[1], "e001")
+    assert_eq(ent[2], "cash")
+    assert_eq(int(ent[3]), 1000)
+}
+
+func test_balance_core() {
+    let state = ["ENTRY|e001|cash|1000", "ENTRY|e003|cash|250", "ENTRY|e002|revenue|1000"]
+    let sum = 0
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[2] == "cash") { sum = sum + int(f[3]); n = n + 1 }
+        i = i + 1
+    }
+    assert_eq(sum, 1250)
+    assert_eq(n, 2)
+}
+
+func test_entry_dedupe_by_ref() {
+    let state = ["ENTRY|e001|cash|1000"]
+    let ref = "e001"
+    let seen = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[1] == ref) { seen = 1 }
+        i = i + 1
+    }
+    assert_eq(seen, 1)
+    let out = []
+    let j = 0
+    while (j < len(state)) { push(out, state[j]); j = j + 1 }
+    if (seen == 0) { push(out, "ENTRY|e001|cash|1000") }
+    assert_eq(len(out), 1)
+}

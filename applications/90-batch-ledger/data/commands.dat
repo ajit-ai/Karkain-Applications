@@ -1,0 +1,11 @@
+ACCOUNT|cash|Cash
+ACCOUNT|revenue|Revenue
+ACCOUNT|expense|Expense
+ENTRY|e001|cash|1000
+ENTRY|e002|revenue|1000
+ENTRY|e003|cash|250
+ENTRY|e004|expense|250
+BALANCE|cash
+BALANCE|revenue
+BALANCE|expense
+REPORT
